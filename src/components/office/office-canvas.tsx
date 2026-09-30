@@ -5,6 +5,7 @@ import { useEffect, useRef, type RefObject } from "react";
 import { OrthographicCamera, Vector3 } from "three";
 
 import { nearestDeskId } from "@/domain/dispatch";
+import type { FloorId } from "@/domain/floors";
 import type { PlacedAgent } from "@/domain/placement";
 import type { PlacedRoom } from "@/domain/rooms";
 import { isoZoom, OfficeScene } from "./office-scene";
@@ -55,6 +56,9 @@ export default function OfficeCanvas({
   openRoomId,
   onSelectRoom,
   dropArmed,
+  floor,
+  onRideElevator,
+  onHire,
   hitRef,
   resetSignal,
 }: {
@@ -65,6 +69,9 @@ export default function OfficeCanvas({
   openRoomId: string | null;
   onSelectRoom: (id: string) => void;
   dropArmed: boolean;
+  floor: FloorId;
+  onRideElevator: () => void;
+  onHire: () => void;
   hitRef: RefObject<DeskHit | null>;
   resetSignal: number;
 }) {
@@ -91,6 +98,9 @@ export default function OfficeCanvas({
         openRoomId={openRoomId}
         onSelectRoom={onSelectRoom}
         dropArmed={dropArmed}
+        floor={floor}
+        onRideElevator={onRideElevator}
+        onHire={onHire}
         resetSignal={resetSignal}
       />
     </Canvas>

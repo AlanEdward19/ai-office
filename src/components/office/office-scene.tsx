@@ -6,6 +6,7 @@ import { useEffect, useRef, type ComponentRef } from "react";
 import { MOUSE, OrthographicCamera, TOUCH, Vector3, type Group } from "three";
 
 import { STATUS_LABELS, type AgentStatus } from "@/domain/agent-event";
+import { ELEVATOR, type FloorId } from "@/domain/floors";
 import { PROVIDER_LABELS } from "@/domain/providers";
 import type { PlacedAgent } from "@/domain/placement";
 import { CEO_CORNER, RECEPTION, roomColor, type PlacedRoom } from "@/domain/rooms";
@@ -33,6 +34,9 @@ export function OfficeScene({
   openRoomId,
   onSelectRoom,
   dropArmed,
+  floor,
+  onRideElevator,
+  onHire,
   resetSignal,
 }: {
   rooms: PlacedRoom[];
@@ -42,6 +46,9 @@ export function OfficeScene({
   openRoomId: string | null;
   onSelectRoom: (id: string) => void;
   dropArmed: boolean;
+  floor: FloorId;
+  onRideElevator: () => void;
+  onHire: () => void;
   resetSignal: number;
 }) {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
@@ -82,26 +89,33 @@ export function OfficeScene({
         shadow-bias={-0.0008}
       />
       <Table />
-      <LobbyFloor />
-      <Reception />
-      <CeoCorner />
-      {rooms.map((room) => (
-        <ProjectRoom
-          key={room.id}
-          room={room}
-          open={room.id === openRoomId}
-          onOpen={() => onSelectRoom(room.id)}
-        />
-      ))}
-      {agents.map((agent) => (
-        <DeskAgent
-          key={agent.id}
-          agent={agent}
-          selected={agent.id === selectedId}
-          dropArmed={dropArmed}
-          onSelect={() => onSelectAgent(agent.id)}
-        />
-      ))}
+      {floor === "ground" ? (
+        <>
+          <LobbyFloor />
+          <Reception />
+          <CeoCorner />
+          {rooms.map((room) => (
+            <ProjectRoom
+              key={room.id}
+              room={room}
+              open={room.id === openRoomId}
+              onOpen={() => onSelectRoom(room.id)}
+            />
+          ))}
+          {agents.map((agent) => (
+            <DeskAgent
+              key={agent.id}
+              agent={agent}
+              selected={agent.id === selectedId}
+              dropArmed={dropArmed}
+              onSelect={() => onSelectAgent(agent.id)}
+            />
+          ))}
+        </>
+      ) : (
+        <HrFloor onHire={onHire} />
+      )}
+      <Elevator onRide={onRideElevator} />
       <OrbitControls
         ref={controls}
         makeDefault
@@ -126,6 +140,64 @@ export function OfficeScene({
         }}
       />
     </>
+  );
+}
+
+function Elevator({ onRide }: { onRide: () => void }) {
+  return (
+    <group position={[ELEVATOR.x, 0, ELEVATOR.z]}>
+      <mesh position={[0, 0.7, 0]} castShadow receiveShadow>
+        <boxGeometry args={[1.7, 1.4, 1.7]} />
+        <meshStandardMaterial color="#4a4038" roughness={0.7} />
+      </mesh>
+      <mesh
+        position={[0, 0.72, 0.82]}
+        onClick={(event) => {
+          event.stopPropagation();
+          onRide();
+        }}
+      >
+        <boxGeometry args={[0.9, 1.15, 0.08]} />
+        <meshStandardMaterial color="#d4b483" metalness={0.45} roughness={0.35} />
+      </mesh>
+      <PlaceLabel title="Elevador" y={1.85} brass />
+    </group>
+  );
+}
+
+function HrFloor({ onHire }: { onHire: () => void }) {
+  return (
+    <group>
+      <mesh position={[0, -0.08, 0]} receiveShadow>
+        <boxGeometry args={[18.4, 0.16, 12.4]} />
+        <meshStandardMaterial color="#6e7c74" roughness={0.85} />
+      </mesh>
+      <mesh position={[0, 0.01, 0]} receiveShadow>
+        <boxGeometry args={[17.6, 0.08, 11.6]} />
+        <meshStandardMaterial color="#e7f0ea" roughness={0.9} />
+      </mesh>
+      <group position={[-1.4, 0, -0.2]}>
+        <mesh position={[0, 0.04, 0]} receiveShadow>
+          <boxGeometry args={[6.2, 0.05, 4.4]} />
+          <meshStandardMaterial color="#1d3b34" roughness={0.9} />
+        </mesh>
+        <mesh
+          position={[0, 0.46, 0.35]}
+          castShadow
+          receiveShadow
+          onClick={(event) => {
+            event.stopPropagation();
+            onHire();
+          }}
+        >
+          <boxGeometry args={[2.4, 0.84, 1.05]} />
+          <meshStandardMaterial color="#f7f1e8" roughness={0.62} />
+        </mesh>
+        <Chair position={[0, 0, -0.55]} color="#1a3330" />
+        <Plant position={[2.3, 0, 1.2]} />
+        <PlaceLabel title="RH" y={1.9} />
+      </group>
+    </group>
   );
 }
 

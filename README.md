@@ -18,10 +18,10 @@ Put real keys in `.env.local` only. That file is gitignored. Do not commit keys.
 
 | Variable | Required for | Notes |
 | --- | --- | --- |
-| `LINEAR_API_KEY` | One room per Linear project | Personal API key. The app sends it in the `Authorization` header with no `Bearer` prefix. |
+| `LINEAR_API_KEY` | Choosing a project for a new room, and that room's board | Personal API key. The app sends it in the `Authorization` header with no `Bearer` prefix. |
 | `CURSOR_API_KEY` | Cloud agent status, and starting one when a card is dropped on a Cursor desk | User API key from the Cursor dashboard. Used to list cloud agents, read a run stream, and `POST /v1/agents` while the page is open. |
 
-The lobby, reception, and CEO corner render without either key. Rooms appear after `LINEAR_API_KEY` is set and you reload. A new Linear project shows up as another room on refresh. The room identity is the project id. The name is only the label on the door.
+The lobby, reception, and CEO corner render without either key. They stay on the ground floor. A room appears when you bind it to a Linear project that does not already have one. The room identity is the project id. The name is only the label on the door. Reloading the project list updates that label. It does not open a room by itself.
 
 ## Companies on the job form
 
@@ -32,6 +32,12 @@ The ficha de vaga asks for a role and a company. The company list is whoever alr
 - **OpenAI (Codex)** — `codex login status`, `~/.codex/auth.json` (or `CODEX_HOME`), or `OPENAI_API_KEY`.
 
 Those checks stay on the server. The page receives company names, not session secrets. Saving the form seats an agent at a desk, and that desk keeps the same form.
+
+## Floors
+
+The ground floor is the lobby: reception, the CEO corner, desks, and the rooms you have opened. The elevator switches the visible floor to HR. It does not reload the page and it does not start a fetch. Closing the page still stops every request.
+
+HR is where hiring happens. It opens the same ficha de vaga. The company list is still only the providers logged in on this machine. Sending the form puts the agent at a desk on the ground floor, with that company on the desk.
 
 ## Board and desk
 

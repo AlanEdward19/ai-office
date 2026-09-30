@@ -10,8 +10,10 @@ import {
   refusalCopy,
   serverDispatchCopy,
 } from "@/domain/dispatch";
+import { FLOOR_LABELS, rideElevator, type FloorId } from "@/domain/floors";
 import { issuesForProject, mergeRoomIssues, type RoomIssue } from "@/domain/issues";
 import type { JobForm } from "@/domain/job-form";
+import { projectsWithoutRooms, roomsFromBindings } from "@/domain/opened-rooms";
 import { bindAgents } from "@/domain/placement";
 import { isProviderId, PROVIDER_LABELS, type ProviderId } from "@/domain/providers";
 import { layoutRooms, type LinearProject } from "@/domain/rooms";
@@ -25,6 +27,8 @@ import { BoardPanel, type BoardState } from "./board-panel";
 import { deskStore } from "./desk-store";
 import { dispatchStore } from "./dispatch-store";
 import type { DeskHit } from "./office-canvas";
+import { OpenRoomDialog } from "./open-room-dialog";
+import { roomStore } from "./room-store";
 
 const OfficeCanvas = dynamic(() => import("./office-canvas"), {
   ssr: false,
@@ -52,9 +56,11 @@ const ISSUE_COPY: Record<string, string> = {
   missing_project: "A sala não tem um projeto.",
 };
 
+const NO_PROJECTS: LinearProject[] = [];
+
 const PROJECT_COPY: Record<Exclude<ProjectsState["status"], "ready" | "loading">, string> = {
   missing_key:
-    "Defina LINEAR_API_KEY nesta máquina para abrir uma sala por projeto. A recepção e o canto do CEO já estão no andar.",
+    "Defina LINEAR_API_KEY nesta máquina para escolher um projeto e abrir a sala. A recepção e o canto do CEO já estão no térreo.",
   error: "Não foi possível ler os projetos do Linear. O lobby continua no lugar.",
 };
 
@@ -69,6 +75,8 @@ export function OfficeApp() {
   const desks = useMemo(() => deskStore.desksFrom(deskSnapshot), [deskSnapshot]);
   const [observed, setObserved] = useState<AgentEvent | null>(null);
   const [notice, setNotice] = useState("Conectando o observador…");
+  const [floor, setFloor] = useState<FloorId>("ground");
+  const [roomDialogOpen, setRoomDialogOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [formSession, setFormSession] = useState(0);
   const [providers, setProviders] = useState<HiringProvider[]>([]);
@@ -93,6 +101,12 @@ export function OfficeApp() {
     () => dispatchStore.recordsFrom(dispatchSnapshot),
     [dispatchSnapshot],
   );
+  const roomSnapshot = useSyncExternalStore(
+    roomStore.subscribe,
+    roomStore.getSnapshot,
+    roomStore.getServerSnapshot,
+  );
+  const openedRoomIds = useMemo(() => roomStore.idsFrom(roomSnapshot), [roomSnapshot]);
 
   useEffect(() => {
     const source = new EventSource("/api/observe");
@@ -222,9 +236,14 @@ export function OfficeApp() {
 
   const viewerName =
     projectsState.status === "ready" ? projectsState.viewerName : null;
+  const projects = projectsState.status === "ready" ? projectsState.projects : NO_PROJECTS;
+  const unboundProjects = useMemo(
+    () => projectsWithoutRooms(projects, openedRoomIds),
+    [projects, openedRoomIds],
+  );
   const rooms = useMemo(
-    () => layoutRooms(projectsState.status === "ready" ? projectsState.projects : []),
-    [projectsState],
+    () => layoutRooms(roomsFromBindings(projects, openedRoomIds)),
+    [projects, openedRoomIds],
   );
   const agents = useMemo(
     () =>
@@ -249,6 +268,18 @@ export function OfficeApp() {
   function saveDesk(form: JobForm) {
     const desk = deskStore.add(form);
     setSelectedId(desk.id);
+    setFloor("ground");
+  }
+
+  function goToFloor(next: FloorId) {
+    setFloor(next);
+  }
+
+  function bindProjectRoom(projectId: string) {
+    const result = roomStore.bind(projectId, projects);
+    if (!result.ok) return;
+    setRoomDialogOpen(false);
+    setFloor("ground");
   }
 
   function openRoom(projectId: string) {
@@ -402,11 +433,14 @@ export function OfficeApp() {
           openRoomId={openRoomId}
           onSelectRoom={openRoom}
           dropArmed={dropArmed}
+          floor={floor}
+          onRideElevator={() => goToFloor(rideElevator(floor))}
+          onHire={openForm}
           hitRef={hitRef}
           resetSignal={resetSignal}
         />
       </div>
-      {currentRoom ? (
+      {currentRoom && floor === "ground" ? (
         <div className="pointer-events-none absolute top-24 left-3 z-10 sm:top-28">
           <BoardPanel
             roomName={currentRoom.name}
@@ -432,42 +466,65 @@ export function OfficeApp() {
         <header className="pointer-events-none flex flex-wrap items-start justify-between gap-3">
           <div className="pointer-events-auto max-w-xl rounded-3xl bg-[#f7f1e8] px-4 py-3 text-[#241c16] shadow-xl">
             <p className="text-[0.65rem] tracking-[0.2em] text-[#8c7b6b] uppercase">
-              Andar local
+              {FLOOR_LABELS[floor]}
             </p>
             <h1 className="font-display text-3xl leading-none sm:text-4xl">
               Escritório de IA
             </h1>
             <p className="mt-2 hidden max-w-md text-sm leading-5 text-[#5c5148] sm:block">
-              A cena existe enquanto esta página está aberta. O canto do CEO não
-              é um projeto.
+              O térreo continua o lobby. O elevador só troca o andar visível, sem
+              recarregar a página.
             </p>
           </div>
-          <div className="pointer-events-auto flex gap-2">
+          <div className="pointer-events-auto flex flex-wrap gap-2">
+            <Button
+              variant={floor === "ground" ? "default" : "outline"}
+              onClick={() => goToFloor("ground")}
+            >
+              Térreo
+            </Button>
+            <Button variant={floor === "hr" ? "default" : "outline"} onClick={() => goToFloor("hr")}>
+              RH
+            </Button>
             <Button variant="outline" onClick={() => setResetSignal((value) => value + 1)}>
               Recentrar
             </Button>
-            <Button onClick={openForm}>Ficha de vaga</Button>
           </div>
         </header>
 
         <div className="flex max-h-[42dvh] flex-col gap-2 overflow-auto sm:max-h-none sm:flex-row sm:items-end sm:justify-between sm:overflow-visible">
           <section className="pointer-events-auto max-w-md rounded-3xl bg-[#f7f1e8]/95 px-4 py-3 text-sm text-[#241c16] shadow-xl">
             <p className="text-[0.65rem] tracking-[0.16em] text-[#8c7b6b] uppercase">
-              Salas
+              {floor === "hr" ? "RH" : "Salas"}
             </p>
-            {projectsState.status === "loading" ? (
+            {floor === "hr" ? (
+              <div>
+                <p className="mt-1 leading-5">
+                  A contratação usa a mesma ficha de vaga. A empresa só aparece se
+                  já houver login nesta máquina.
+                </p>
+                <Button className="mt-3" onClick={openForm}>
+                  Ficha de vaga
+                </Button>
+              </div>
+            ) : projectsState.status === "loading" ? (
               <p className="mt-1">Lendo os projetos do Linear…</p>
             ) : projectsState.status === "ready" ? (
               <p className="mt-1">
                 {rooms.length === 0
-                  ? "Nenhum projeto ainda. Um projeto novo aparece como sala ao recarregar."
-                  : `${rooms.length} ${rooms.length === 1 ? "sala" : "salas"}, uma por id de projeto.`}
+                  ? "Nenhuma sala aberta. Escolha um projeto que ainda não tem sala."
+                  : `${rooms.length} ${rooms.length === 1 ? "sala" : "salas"}, cada uma com o id do projeto.`}
                 {viewerName ? ` Chave de ${viewerName}.` : ""}
               </p>
             ) : (
               <p className="mt-1 leading-5">{PROJECT_COPY[projectsState.status]}</p>
             )}
-            {projectsState.status === "ready" && rooms.length > 0 ? (
+            {floor === "ground" && projectsState.status === "ready" ? (
+              <Button className="mt-3" onClick={() => setRoomDialogOpen(true)}>
+                Abrir sala
+              </Button>
+            ) : null}
+            {floor === "ground" && projectsState.status === "ready" && rooms.length > 0 ? (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {rooms.map((room) => (
                   <Button
@@ -481,17 +538,19 @@ export function OfficeApp() {
                 ))}
               </div>
             ) : null}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="mt-2 px-0"
-              onClick={() => {
-                setProjectsState({ status: "loading" });
-                setReloadToken((value) => value + 1);
-              }}
-            >
-              Recarregar salas
-            </Button>
+            {floor === "ground" ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mt-2 px-0"
+                onClick={() => {
+                  setProjectsState({ status: "loading" });
+                  setReloadToken((value) => value + 1);
+                }}
+              >
+                Recarregar projetos
+              </Button>
+            ) : null}
           </section>
 
           <section
@@ -544,6 +603,23 @@ export function OfficeApp() {
           </section>
         </div>
       </div>
+      <OpenRoomDialog
+        open={roomDialogOpen}
+        onOpenChange={setRoomDialogOpen}
+        projects={unboundProjects}
+        emptyMessage={
+          projectsState.status === "ready" && unboundProjects.length === 0
+            ? projects.length === 0
+              ? "Nenhum projeto no Linear. Uma sala não abre sem projeto."
+              : "Todo projeto visível já tem sala."
+            : projectsState.status === "missing_key"
+              ? PROJECT_COPY.missing_key
+              : projectsState.status === "error"
+                ? PROJECT_COPY.error
+                : null
+        }
+        onSubmit={bindProjectRoom}
+      />
       <JobFormDialog
         key={formSession}
         open={formOpen}
