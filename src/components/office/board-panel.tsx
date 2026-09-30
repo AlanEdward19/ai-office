@@ -22,10 +22,12 @@ export function BoardPanel({
   dispatches,
   creating,
   message,
+  readOnly,
+  carriedId,
   onCreate,
   onRefresh,
   onClose,
-  onDragIssue,
+  onCarry,
 }: {
   roomName: string;
   projectId: string;
@@ -33,10 +35,12 @@ export function BoardPanel({
   dispatches: readonly DispatchRecord[];
   creating: boolean;
   message: string | null;
+  readOnly: boolean;
+  carriedId: string | null;
   onCreate: (title: string) => Promise<boolean>;
   onRefresh: () => void;
   onClose: () => void;
-  onDragIssue: (issue: RoomIssue | null) => void;
+  onCarry: (issue: RoomIssue) => void;
 }) {
   const [title, setTitle] = useState("");
   const issues = state.status === "ready" ? state.issues.filter((issue) => issue.projectId === projectId) : [];
@@ -52,31 +56,35 @@ export function BoardPanel({
           Fechar
         </Button>
       </div>
-      <form
-        className="space-y-2 px-4 py-3"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const next = title.trim();
-          if (!next || creating) return;
-          void onCreate(next).then((saved) => {
-            if (saved) setTitle("");
-          });
-        }}
-      >
-        <Label htmlFor="card-title">Novo card</Label>
-        <div className="flex gap-2">
-          <Input
-            id="card-title"
-            value={title}
-            maxLength={200}
-            placeholder="O que esta sala precisa"
-            onChange={(event) => setTitle(event.target.value)}
-          />
-          <Button type="submit" disabled={creating || title.trim().length === 0}>
-            {creating ? "Criando…" : "Criar"}
-          </Button>
-        </div>
-      </form>
+      {readOnly ? (
+        <p className="px-4 py-3 text-sm leading-5">Você está só olhando. Não dá para criar card nem soltar na mesa.</p>
+      ) : (
+        <form
+          className="space-y-2 px-4 py-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const next = title.trim();
+            if (!next || creating) return;
+            void onCreate(next).then((saved) => {
+              if (saved) setTitle("");
+            });
+          }}
+        >
+          <Label htmlFor="card-title">Novo card</Label>
+          <div className="flex gap-2">
+            <Input
+              id="card-title"
+              value={title}
+              maxLength={200}
+              placeholder="O que esta sala precisa"
+              onChange={(event) => setTitle(event.target.value)}
+            />
+            <Button type="submit" disabled={creating || title.trim().length === 0}>
+              {creating ? "Criando…" : "Criar"}
+            </Button>
+          </div>
+        </form>
+      )}
       <div className="min-h-0 flex-1 space-y-2 overflow-auto px-4 pb-3">
         {state.status === "loading" ? <p className="text-sm">Lendo as issues deste projeto…</p> : null}
         {state.status === "missing_key" ? (
@@ -91,19 +99,7 @@ export function BoardPanel({
         {issues.map((issue) => {
           const dispatch = dispatchForIssue(dispatches, projectId, issue.id);
           return (
-            <article
-              key={issue.id}
-              draggable
-              onDragStart={(event) => {
-                event.dataTransfer.setData("text/plain", issue.id);
-                event.dataTransfer.effectAllowed = "copy";
-                onDragIssue(issue);
-              }}
-              onDragEnd={() => {
-                window.setTimeout(() => onDragIssue(null), 0);
-              }}
-              className="cursor-grab rounded-2xl border border-border bg-white/85 p-3 active:cursor-grabbing"
-            >
+            <article key={issue.id} className="rounded-2xl border border-border bg-white/85 p-3">
               <p className="text-[0.65rem] tracking-[0.14em] text-[#8c7b6b] uppercase">
                 {issue.identifier}
                 {issue.stateName ? ` · ${issue.stateName}` : ""}
@@ -132,8 +128,15 @@ export function BoardPanel({
                     </>
                   ) : null}
                 </p>
-              ) : (
-                <p className="mt-2 text-xs text-[#8c7b6b]">Arraste até uma mesa com ficha.</p>
+              ) : readOnly ? null : (
+                <Button
+                  className="mt-2"
+                  size="sm"
+                  variant={carriedId === issue.id ? "default" : "outline"}
+                  onClick={() => onCarry(issue)}
+                >
+                  {carriedId === issue.id ? "Na mão" : "Levar até a mesa"}
+                </Button>
               )}
             </article>
           );

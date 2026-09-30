@@ -1,5 +1,7 @@
 import { isProviderId } from "@/domain/providers";
+import { canPerform } from "@/domain/office-share";
 import { dispatchAttachment, dispatchComment } from "@/domain/dispatch";
+import { findSession } from "@/server/office-channel";
 import { createCursorCloudAgent } from "@/server/cursor-client";
 import { ObserveHttpError } from "@/domain/observe-cursor";
 import { LinearRequestError, linkDispatchOnIssue, readIssueForDispatch } from "@/server/linear-client";
@@ -8,6 +10,10 @@ import { detectAuthenticatedProviders } from "@/server/local-logins";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const session = findSession(request);
+  if (!session || !canPerform(session.role, "dispatch")) {
+    return Response.json({ dispatch: null, error: "read_only" }, { status: 403 });
+  }
   let body: unknown;
   try {
     body = await request.json();

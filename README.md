@@ -1,6 +1,6 @@
 # Escritório de IA
 
-A local isometric office. The floor exists only while you have the page open. There is no deployed service and no process that keeps watching Cursor after the tab closes.
+A local office you walk through at person height. The floor exists only while you have the page open. There is no deployed service and no process that keeps watching Cursor after the tab closes.
 
 ## Run
 
@@ -11,6 +11,8 @@ npm run dev
 ```
 
 Open [http://127.0.0.1:3847](http://127.0.0.1:3847).
+
+WASD walks. The arrow keys turn. Drag the mouse to look, or click the floor to walk there. Stand next to a desk, a room board, the elevator, or the HR desk and press E. The camera stays at eye level behind you. It is not an overhead diorama.
 
 Put real keys in `.env.local` only. That file is gitignored. Do not commit keys.
 
@@ -67,6 +69,12 @@ The bridge is the open page. While the page is open it installs user-level hooks
 Each hook appends a status line and exits. It does not record tool arguments or secrets. Other hooks in those files stay. If a file is not valid JSON, it is left untouched and that provider stays idle.
 
 Closing the page, or losing the spool, stops the working animation. The bridge starts at the end of the spool, so older lines are not shown as work in progress. There is no always-on process and no cloud fleet API.
+
+## Colleagues
+
+Someone else can open the same page and choose "Entrar só para olhar" with a different name. They see the rooms and agent status this machine is publishing, and they can walk the floor. They cannot hire, open a room, drop a card, create a card, or publish an event.
+
+The shared channel is memory in the dev server, tied to the open pages. It sends status only: provider, origin, owner, machine id, project id, status, and when it was observed. Transcripts, tool arguments, file paths, and secrets are not included. When the last page closes, the snapshot and the sessions are dropped. Nothing stays connected, and a colleague page does not start the Cursor observer or the local hook bridge.
 
 ## Checks
 

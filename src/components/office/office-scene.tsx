@@ -1,15 +1,16 @@
 "use client";
 
-import { OrbitControls } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
-import { useEffect, useRef, type ComponentRef } from "react";
-import { MOUSE, OrthographicCamera, TOUCH, Vector3, type Group } from "three";
+import { useEffect, useMemo, useRef } from "react";
+import { Vector3, type Group } from "three";
 
 import { STATUS_LABELS, type AgentStatus } from "@/domain/agent-event";
 import { ELEVATOR, type FloorId } from "@/domain/floors";
 import { PROVIDER_LABELS } from "@/domain/providers";
 import { localWingPlate, type PlacedAgent } from "@/domain/placement";
-import { CEO_CORNER, RECEPTION, roomColor, type PlacedRoom } from "@/domain/rooms";
+import { CEO_CORNER, LOBBY, RECEPTION, roomColor, type PlacedRoom } from "@/domain/rooms";
+import { interactTargets, type InteractTarget, type Pose } from "@/domain/walker";
+import { OfficePlayer } from "./player";
 
 const STATUS_COLOR: Record<AgentStatus, string> = {
   idle: "#8d8276",
@@ -18,64 +19,38 @@ const STATUS_COLOR: Record<AgentStatus, string> = {
   done: "#1f7a4d",
 };
 
-const POLAR = Math.atan2(Math.hypot(20, 20), 22);
-
-export function isoZoom(width: number, height: number) {
-  const shortest = Math.min(width, height);
-  if (shortest < 720) return Math.max(16, shortest / 22);
-  return Math.max(32, shortest / 18);
-}
-
 export function OfficeScene({
   rooms,
   agents,
-  selectedId,
-  onSelectAgent,
-  openRoomId,
-  onSelectRoom,
+  nearId,
   dropArmed,
   floor,
-  onRideElevator,
-  onHire,
   localOffline,
-  resetSignal,
+  enabled,
+  onNearby,
+  onPose,
 }: {
   rooms: PlacedRoom[];
   agents: PlacedAgent[];
-  selectedId: string | null;
-  onSelectAgent: (id: string) => void;
-  openRoomId: string | null;
-  onSelectRoom: (id: string) => void;
+  nearId: string | null;
   dropArmed: boolean;
   floor: FloorId;
-  onRideElevator: () => void;
-  onHire: () => void;
   localOffline: boolean;
-  resetSignal: number;
+  enabled: boolean;
+  onNearby: (target: InteractTarget | null) => void;
+  onPose: (pose: Pose) => void;
 }) {
-  const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
-  useEffect(() => {
-    const fit = () => {
-      const orbit = controls.current;
-      const camera = orbit?.object;
-      if (!(camera instanceof OrthographicCamera)) return;
-      camera.position.set(20, 22, 20);
-      camera.zoom = isoZoom(window.innerWidth, window.innerHeight);
-      camera.lookAt(0, 0, -1);
-      camera.updateProjectionMatrix();
-      orbit?.target.set(0, 0, -1);
-      orbit?.update();
-    };
-    if (resetSignal > 0) fit();
-    window.addEventListener("resize", fit);
-    return () => window.removeEventListener("resize", fit);
-  }, [resetSignal]);
+  const targets = useMemo(
+    () => interactTargets({ floor, rooms, agents }),
+    [floor, rooms, agents],
+  );
 
   return (
     <>
-      <color attach="background" args={["#241c16"]} />
-      <ambientLight intensity={0.72} />
-      <hemisphereLight args={["#f7f1e8", "#8d6a45", 0.38]} />
+      <color attach="background" args={["#c4b29a"]} />
+      <fog attach="fog" args={["#c4b29a", 16, 38]} />
+      <ambientLight intensity={0.62} />
+      <hemisphereLight args={["#f7f1e8", "#8d6a45", 0.45]} />
       <directionalLight
         castShadow
         position={[12, 18, 10]}
@@ -90,88 +65,70 @@ export function OfficeScene({
         shadow-camera-bottom={-22}
         shadow-bias={-0.0008}
       />
+      <Ceiling />
       <Table />
       {floor === "ground" ? (
         <>
+          <LobbyShell />
           <LobbyFloor />
           <LocalWing offline={localOffline} />
           <Reception />
           <CeoCorner />
           {rooms.map((room) => (
-            <ProjectRoom
-              key={room.id}
-              room={room}
-              open={room.id === openRoomId}
-              onOpen={() => onSelectRoom(room.id)}
-            />
+            <ProjectRoom key={room.id} room={room} open={room.id === nearId} />
           ))}
           {agents.map((agent) => (
             <DeskAgent
               key={agent.id}
               agent={agent}
-              selected={agent.id === selectedId}
+              selected={agent.id === nearId}
               dropArmed={dropArmed}
               localOffline={localOffline}
-              onSelect={() => onSelectAgent(agent.id)}
             />
           ))}
         </>
       ) : (
-        <HrFloor onHire={onHire} />
+        <HrFloor />
       )}
-      <Elevator onRide={onRideElevator} />
-      <OrbitControls
-        ref={controls}
-        makeDefault
-        target={[0, 0, -1]}
-        enableRotate={false}
-        minPolarAngle={POLAR}
-        maxPolarAngle={POLAR}
-        minAzimuthAngle={Math.PI / 4}
-        maxAzimuthAngle={Math.PI / 4}
-        minZoom={14}
-        maxZoom={80}
-        enableDamping
-        dampingFactor={0.12}
-        mouseButtons={{
-          LEFT: MOUSE.PAN,
-          MIDDLE: MOUSE.DOLLY,
-          RIGHT: MOUSE.PAN,
-        }}
-        touches={{
-          ONE: TOUCH.PAN,
-          TWO: TOUCH.DOLLY_PAN,
-        }}
+      <Elevator />
+      <OfficePlayer
+        floor={floor}
+        targets={targets}
+        enabled={enabled}
+        onNearby={onNearby}
+        onPose={onPose}
       />
     </>
   );
 }
 
-function Elevator({ onRide }: { onRide: () => void }) {
+function Elevator() {
   return (
     <group position={[ELEVATOR.x, 0, ELEVATOR.z]}>
-      <mesh position={[0, 0.7, 0]} castShadow receiveShadow>
-        <boxGeometry args={[1.7, 1.4, 1.7]} />
+      <mesh position={[0, 1.25, 0]} castShadow receiveShadow>
+        <boxGeometry args={[1.7, 2.5, 1.7]} />
         <meshStandardMaterial color="#4a4038" roughness={0.7} />
       </mesh>
-      <mesh
-        position={[0, 0.72, 0.82]}
-        onClick={(event) => {
-          event.stopPropagation();
-          onRide();
-        }}
-      >
-        <boxGeometry args={[0.9, 1.15, 0.08]} />
+      <mesh position={[0, 1.15, 0.86]}>
+        <boxGeometry args={[0.95, 2.05, 0.06]} />
         <meshStandardMaterial color="#d4b483" metalness={0.45} roughness={0.35} />
       </mesh>
-      <PlaceLabel title="Elevador" y={1.85} brass />
+      <PlaceLabel title="Elevador" y={2.7} brass />
     </group>
   );
 }
 
-function HrFloor({ onHire }: { onHire: () => void }) {
+function HrFloor() {
   return (
     <group>
+      <mesh position={[0, 1.25, -6.15]} castShadow>
+        <boxGeometry args={[18.2, 2.5, 0.12]} />
+        <meshStandardMaterial color="#f7f1e8" roughness={0.9} />
+      </mesh>
+      <mesh position={[-9.05, 1.25, 0]} castShadow>
+        <boxGeometry args={[0.12, 2.5, 12.2]} />
+        <meshStandardMaterial color="#f7f1e8" roughness={0.9} />
+      </mesh>
       <mesh position={[0, -0.08, 0]} receiveShadow>
         <boxGeometry args={[18.4, 0.16, 12.4]} />
         <meshStandardMaterial color="#6e7c74" roughness={0.85} />
@@ -185,22 +142,40 @@ function HrFloor({ onHire }: { onHire: () => void }) {
           <boxGeometry args={[6.2, 0.05, 4.4]} />
           <meshStandardMaterial color="#1d3b34" roughness={0.9} />
         </mesh>
-        <mesh
-          position={[0, 0.46, 0.35]}
-          castShadow
-          receiveShadow
-          onClick={(event) => {
-            event.stopPropagation();
-            onHire();
-          }}
-        >
+        <mesh position={[0, 0.46, 0.35]} castShadow receiveShadow>
           <boxGeometry args={[2.4, 0.84, 1.05]} />
           <meshStandardMaterial color="#f7f1e8" roughness={0.62} />
         </mesh>
         <Chair position={[0, 0, -0.55]} color="#1a3330" />
         <Plant position={[2.3, 0, 1.2]} />
-        <PlaceLabel title="RH" y={1.9} />
+        <PlaceLabel title="Ficha de vaga" y={1.9} />
       </group>
+    </group>
+  );
+}
+
+function Ceiling() {
+  return (
+    <mesh position={[0, 3.15, -1]} rotation={[Math.PI / 2, 0, 0]}>
+      <planeGeometry args={[42, 36]} />
+      <meshStandardMaterial color="#4a3d34" />
+    </mesh>
+  );
+}
+
+function LobbyShell() {
+  const halfW = LOBBY.width / 2 + 0.2;
+  const halfD = LOBBY.depth / 2 + 0.2;
+  const height = 2.55;
+  const y = height / 2;
+  return (
+    <group>
+      <Wall position={[0, y, halfD]} size={[LOBBY.width + 0.4, height, 0.12]} />
+      <Wall position={[-halfW, y, 0]} size={[0.12, height, LOBBY.depth + 0.4]} />
+      <Wall position={[-5.4, y, -halfD]} size={[7.2, height, 0.12]} />
+      <Wall position={[5.6, y, -halfD]} size={[7.2, height, 0.12]} />
+      <Wall position={[halfW, y, -3.3]} size={[0.12, height, 5.6]} />
+      <Wall position={[halfW, y, 4.3]} size={[0.12, height, 3.6]} />
     </group>
   );
 }
@@ -304,51 +279,26 @@ function CeoCorner() {
   );
 }
 
-function ProjectRoom({
-  room,
-  open,
-  onOpen,
-}: {
-  room: PlacedRoom;
-  open: boolean;
-  onOpen: () => void;
-}) {
+function ProjectRoom({ room, open }: { room: PlacedRoom; open: boolean }) {
   const width = 4.05;
   const depth = 4.4;
+  const wallY = 1.25;
   return (
     <group position={[room.x, 0, room.z]}>
-      <mesh
-        position={[0, 0.02, 0]}
-        receiveShadow
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpen();
-        }}
-      >
+      <mesh position={[0, 0.02, 0]} receiveShadow>
         <boxGeometry args={[width, 0.06, depth]} />
         <meshStandardMaterial color={roomColor(room.id)} roughness={0.88} />
       </mesh>
-      <Wall position={[0, 0.62, -depth / 2]} size={[width, 1.2, 0.08]} />
-      <Wall position={[-width / 2, 0.62, 0]} size={[0.08, 1.2, depth]} />
-      <Wall position={[width / 2, 0.62, 0]} size={[0.08, 1.2, depth]} />
-      <Wall position={[-1.15, 0.62, depth / 2]} size={[1.5, 1.2, 0.08]} />
-      <Wall position={[1.15, 0.62, depth / 2]} size={[1.5, 1.2, 0.08]} />
-      <mesh position={[0, 0.42, 0.4]} castShadow>
-        <boxGeometry args={[1.15, 0.7, 0.62]} />
-        <meshStandardMaterial color="#f7f1e8" />
-      </mesh>
-      <mesh
-        position={[0, 0.95, -depth / 2 + 0.1]}
-        castShadow
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpen();
-        }}
-      >
-        <boxGeometry args={[2.35, 1.2, 0.08]} />
+      <Wall position={[0, wallY, -depth / 2]} size={[width, 2.5, 0.08]} />
+      <Wall position={[-width / 2, wallY, 0]} size={[0.08, 2.5, depth]} />
+      <Wall position={[width / 2, wallY, 0]} size={[0.08, 2.5, depth]} />
+      <Wall position={[-1.15, wallY, depth / 2]} size={[1.5, 2.5, 0.08]} />
+      <Wall position={[1.15, wallY, depth / 2]} size={[1.5, 2.5, 0.08]} />
+      <mesh position={[0, 1.45, -depth / 2 + 0.12]} castShadow>
+        <boxGeometry args={[2.2, 1.25, 0.06]} />
         <meshStandardMaterial color={open ? "#f3d48a" : "#f7f1e8"} roughness={0.55} />
       </mesh>
-      <PlaceLabel title={room.name} y={2.15} />
+      <PlaceLabel title={room.name} y={2.35} />
     </group>
   );
 }
@@ -358,13 +308,11 @@ function DeskAgent({
   selected,
   dropArmed,
   localOffline,
-  onSelect,
 }: {
   agent: PlacedAgent;
   selected: boolean;
   dropArmed: boolean;
   localOffline: boolean;
-  onSelect: () => void;
 }) {
   const local = agent.event.origin === "local";
   const company = agent.form
@@ -389,15 +337,7 @@ function DeskAgent({
       ];
   return (
     <group position={[agent.x, 0, agent.z]}>
-      <mesh
-        position={[0, 0.4, 0.15]}
-        castShadow
-        receiveShadow
-        onClick={(event) => {
-          event.stopPropagation();
-          onSelect();
-        }}
-      >
+      <mesh position={[0, 0.4, 0.15]} castShadow receiveShadow>
         <boxGeometry args={[1.35, 0.72, 0.7]} />
         <meshStandardMaterial
           color={local ? (selected ? "#5c6b78" : "#3e4c59") : selected ? "#f7f1e8" : "#efe2d2"}

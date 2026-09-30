@@ -14,7 +14,7 @@ const fraunces = Fraunces({
 
 export const metadata: Metadata = {
   title: "Escritório de IA",
-  description: "Andar local, isométrico, aberto só enquanto a página está aberta.",
+  description: "Escritório em primeira pessoa, aberto só enquanto a página está aberta.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

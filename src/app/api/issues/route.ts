@@ -1,4 +1,6 @@
 import { issuesForProject, parseCardTitle } from "@/domain/issues";
+import { canPerform } from "@/domain/office-share";
+import { findSession } from "@/server/office-channel";
 import {
   createProjectIssue,
   LinearRequestError,
@@ -32,6 +34,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const session = findSession(request);
+  if (!session || !canPerform(session.role, "create_card")) {
+    return Response.json({ issue: null, error: "read_only" }, { status: 403 });
+  }
   const apiKey = process.env.LINEAR_API_KEY?.trim();
   if (!apiKey) {
     return Response.json({ issue: null, error: "missing_key" }, { status: 400 });
