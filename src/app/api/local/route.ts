@@ -4,7 +4,7 @@ import { followClaudeSessions } from "@/server/claude-follow";
 import { followCodexAppServer } from "@/server/codex-follow";
 import { fileSpool, retainLocalBridge } from "@/server/local-bridge";
 import { detectLocalLogins } from "@/server/local-logins";
-import { abortableSleep } from "../observe/route";
+import { abortableSleep } from "@/server/abortable-sleep";
 
 export const dynamic = "force-dynamic";
 

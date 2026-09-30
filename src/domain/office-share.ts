@@ -1,3 +1,4 @@
+import { readTimeZone } from "./office-time";
 import { isAgentEvent, type AgentEvent } from "./agent-event";
 import { presentLocalEvent } from "./local-hooks";
 import type { PlacedAgent } from "./placement";
@@ -23,6 +24,7 @@ export type SharedRoom = {
 /** Status the colleague is allowed to see. No transcript, path, or secret. */
 export type SharedScene = {
   hostName: string;
+  hostTimeZone?: string;
   localOffline: boolean;
   rooms: SharedRoom[];
   agents: PlacedAgent[];
@@ -106,10 +108,10 @@ export function readSharedScene(value: unknown): SharedScene | null {
     if (!event) continue;
     const form = readForm(agent.form);
     if (form === undefined) continue;
-    agents.push({ id, x, z, form, event });
+    agents.push({ id, x, z, form, event, ...(clip(agent.displayName, 60) ? { displayName: clip(agent.displayName, 60) } : {}) });
   }
 
-  return { hostName, localOffline: record.localOffline, rooms, agents };
+  return { hostName, ...(readTimeZone(record.hostTimeZone) ? { hostTimeZone: readTimeZone(record.hostTimeZone) } : {}), localOffline: record.localOffline, rooms, agents };
 }
 
 function readForm(value: unknown): PlacedAgent["form"] | undefined {
@@ -140,6 +142,7 @@ function readEvent(value: unknown): AgentEvent | null {
 export function sceneWithoutHost(scene: SharedScene): SharedScene {
   return {
     hostName: scene.hostName,
+    ...(scene.hostTimeZone ? { hostTimeZone: scene.hostTimeZone } : {}),
     localOffline: true,
     rooms: scene.rooms.map((room) => ({ ...room })),
     agents: scene.agents.map((agent) => ({

@@ -5,6 +5,7 @@ import { presentLocalEvent } from "./local-hooks";
 
 export type PlacedAgent = {
   id: string;
+  displayName?: string;
   x: number;
   z: number;
   form: JobForm | null;

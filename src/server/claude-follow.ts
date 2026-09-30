@@ -6,7 +6,7 @@ import type { AgentEvent, AgentStatus } from "@/domain/agent-event";
 import { parseClaudeAgentsOutput, statusFromClaudeAgentList } from "@/domain/claude-session";
 import { localAgentEvent } from "@/domain/local-hooks";
 import { isAbortError } from "@/domain/observe-cursor";
-import { abortableSleep } from "@/app/api/observe/route";
+import { abortableSleep } from "@/server/abortable-sleep";
 
 const OUTPUT_CAP = 1_000_000;
 

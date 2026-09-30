@@ -6,6 +6,7 @@ import {
   TURN_SPEED,
   WALK_SPEED,
   arrivalPose,
+  avatarRotation,
   integrateWalk,
   interactTargets,
   nearestTarget,
@@ -63,6 +64,29 @@ test("interaction is the thing you are standing next to", () => {
   assert.equal(nearestTarget(0, 2.6, targets), null);
   const board = targets.find((target) => target.id === "proj-sala");
   assert.ok(board);
-  assert.ok(board.z < -9);
+  assert.ok(board.z > -9);
   assert.equal(arrivalPose().yaw < 0, true);
+});
+
+
+test("after mouse turns, W travels toward the avatar front in every direction", () => {
+  for (const yawDelta of [Math.PI / 4, Math.PI / 2, Math.PI, -Math.PI / 2, -Math.PI * 1.5]) {
+    const turned = integrateWalk(LOBBY_SPAWN, { ...still, yawDelta }, null, 0, walkBounds("ground"));
+    const walked = integrateWalk(turned.pose, { ...still, forward: 1 }, null, 0.1, walkBounds("ground"));
+    const rotation = avatarRotation(walked.pose.yaw);
+    // Rotating the model's local front (0, 0, -1) around Three's Y axis.
+    const frontX = -Math.sin(rotation);
+    const frontZ = -Math.cos(rotation);
+    const dx = walked.pose.x - turned.pose.x;
+    const dz = walked.pose.z - turned.pose.z;
+    assert.ok(dx * frontX + dz * frontZ > 0, `W must face forward after yaw ${yawDelta}`);
+    assert.ok(Math.abs(dx * frontZ - dz * frontX) < 1e-10);
+  }
+});
+
+
+test("room interaction is reachable from outside the entrance with collision enabled", () => {
+  const targets = interactTargets({ floor: "ground", rooms: [{ id: "room", x: 0, z: -9 }], agents: [] });
+  const entrance = { x: 0, z: -9 + 2.2 + 0.24 + 0.1 };
+  assert.equal(nearestTarget(entrance.x, entrance.z, targets)?.id, "room");
 });

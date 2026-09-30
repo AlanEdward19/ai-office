@@ -1,5 +1,7 @@
 "use client";
 
+import type { CameraMode } from "@/domain/camera";
+
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
@@ -32,10 +34,19 @@ import { BoardPanel, type BoardState } from "./board-panel";
 import { OfficeCall } from "./office-call";
 import { deskStore } from "./desk-store";
 import { dispatchStore } from "./dispatch-store";
+import { DEFAULT_APPEARANCE, type Gesture } from "@/domain/character";
+import { SceneBoundary } from "./scene-boundary";
+import { AgentPanel } from "./agent-panel";
+import { agentProfileStore } from "./agent-profile-store";
+import { OfficeHud } from "./office-hud";
+import { CharacterCreator } from "./character-creator";
 import { OpenRoomDialog } from "./open-room-dialog";
 import { roomStore } from "./room-store";
 
-const OfficeCanvas = dynamic(() => import("./office-canvas"), {
+const OfficeCanvas = dynamic(() => new Promise<typeof import("./office-canvas")>((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error("Tempo limite ao carregar a cena.")), 20000);
+  import("./office-canvas").then(resolve, reject).finally(() => clearTimeout(timer));
+}), {
   ssr: false,
   loading: () => (
     <div className="grid h-full place-items-center text-sm text-[#d9cbb8]">
@@ -79,6 +90,8 @@ const PROJECT_COPY: Record<Exclude<ProjectsState["status"], "ready" | "loading">
 };
 
 export function OfficeApp() {
+  const profileSnapshot = useSyncExternalStore(agentProfileStore.subscribe, agentProfileStore.getSnapshot, agentProfileStore.getServerSnapshot);
+  const profiles = useMemo(() => agentProfileStore.profilesFrom(profileSnapshot), [profileSnapshot]);
   const [session, setSession] = useState<SessionState | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [machineName, setMachineName] = useState("");
@@ -109,6 +122,11 @@ export function OfficeApp() {
   const [localLink, setLocalLink] = useState<"connecting" | "online" | "offline">("offline");
   const [localNotice, setLocalNotice] = useState("");
   const localOnlineRef = useRef(false);
+  const [cameraMode, setCameraMode] = useState<CameraMode>("third");
+  const [zoom, setZoom] = useState(1.25);
+  const [gesture, setGesture] = useState<{kind: Gesture; stamp: number} | null>(null);
+  const [appearance, setAppearance] = useState(DEFAULT_APPEARANCE);
+  const [characterOpen, setCharacterOpen] = useState(false);
   const [floor, setFloor] = useState<FloorId>("ground");
   const [roomDialogOpen, setRoomDialogOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
@@ -122,6 +140,7 @@ export function OfficeApp() {
   const [creatingCard, setCreatingCard] = useState(false);
   const [boardMessage, setBoardMessage] = useState<string | null>(null);
   const [carried, setCarried] = useState<RoomIssue | null>(null);
+  const [selectedDeskId, setSelectedDeskId] = useState<string | null>(null);
   const [nearby, setNearby] = useState<InteractTarget | null>(null);
   const [pose, setPose] = useState<Pose>(LOBBY_SPAWN);
   const dispatchSnapshot = useSyncExternalStore(
@@ -439,7 +458,7 @@ export function OfficeApp() {
       }),
     [desks, localEvents, presence, localLink],
   );
-  const agents = useMemo(() => [...cloudAgents, ...localAgents], [cloudAgents, localAgents]);
+  const agents = useMemo(() => [...cloudAgents, ...localAgents].map(a => ({ ...a, displayName: profiles.find(p => p.agentId === a.id)?.name })), [cloudAgents, localAgents, profiles]);
   const viewRooms: PlacedRoom[] = useMemo(
     () => (host ? rooms : (shared?.rooms ?? [])),
     [host, rooms, shared],
@@ -447,6 +466,7 @@ export function OfficeApp() {
   const viewAgents = host ? agents : (shared?.agents ?? []);
   const viewOffline = host ? localLink === "offline" : Boolean(shared?.localOffline);
   const currentRoom = viewRooms.find((room) => room.id === openRoomId) ?? null;
+  const selectedDesk = viewAgents.find(agent => agent.id === selectedDeskId) ?? null;
   const nearAgent =
     nearby?.kind === "desk" ? (viewAgents.find((agent) => agent.id === nearby.id) ?? null) : null;
 
@@ -458,6 +478,7 @@ export function OfficeApp() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         hostName: session.name,
+        hostTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         localOffline: localLink !== "online",
         rooms: rooms.map((room) => ({ id: room.id, name: room.name, x: room.x, z: room.z })),
         agents,
@@ -586,7 +607,7 @@ export function OfficeApp() {
       setBoardMessage(refusalCopy(decision.reason, decision.provider));
       return;
     }
-    setBoardMessage("Iniciando o cloud agent do Cursor para esta issue…");
+    setBoardMessage(`Iniciando ${PROVIDER_LABELS[decision.provider]} para esta issue…`);
     try {
       const response = await fetch("/api/dispatch", {
         method: "POST",
@@ -595,6 +616,7 @@ export function OfficeApp() {
           projectId: issue.projectId,
           issueId: issue.id,
           provider: decision.provider,
+          deskId: decision.deskId,
         }),
       });
       const body = (await response.json()) as {
@@ -612,7 +634,7 @@ export function OfficeApp() {
         !dispatched ||
         dispatched.projectId !== issue.projectId ||
         dispatched.issueId !== issue.id ||
-        !dispatched.cursorAgentId
+        (decision.provider === "cursor" && !dispatched.cursorAgentId)
       ) {
         setBoardMessage(serverDispatchCopy(body.error ?? "unavailable", decision.provider));
         return;
@@ -621,13 +643,13 @@ export function OfficeApp() {
         issueId: dispatched.issueId,
         projectId: dispatched.projectId,
         deskId: decision.deskId,
-        provider: "cursor",
+        provider: decision.provider,
         cursorAgentId: dispatched.cursorAgentId,
         cursorAgentUrl: dispatched.cursorAgentUrl,
         createdAt: new Date().toISOString(),
       });
       setCarried(null);
-      setBoardMessage(
+      setBoardMessage(decision.provider !== "cursor" ? `Card atribuído a ${PROVIDER_LABELS[decision.provider]}. Abra o agente para acompanhar.` :
         dispatched.linked === false
           ? "O cloud agent iniciou, mas o Linear não gravou o vínculo. O avatar ainda acompanha o observador."
           : "Card na mesa do Cursor. A issue ficou ligada a esse cloud agent. O avatar passa a trabalhando pelo observador.",
@@ -640,7 +662,7 @@ export function OfficeApp() {
   const interactRef = useRef<() => void>(() => {});
 
   function interact() {
-    if (!session || !nearby || formOpen || roomDialogOpen) return;
+    if (!session || !nearby || formOpen || roomDialogOpen || characterOpen || selectedDesk) return;
     if (nearby.kind === "elevator") {
       setFloor((current) => rideElevator(current));
       setOpenRoomId(null);
@@ -652,6 +674,7 @@ export function OfficeApp() {
     }
     if (nearby.kind === "desk") {
       if (host && carried) void finishDrop(carried, nearby.id);
+      else setSelectedDeskId(nearby.id);
       return;
     }
     if (!host) return;
@@ -705,12 +728,17 @@ export function OfficeApp() {
   }
 
   const prompt = promptFor(nearby, host, floor, Boolean(carried), viewRooms);
-  const walking = Boolean(session) && !formOpen && !roomDialogOpen;
+  const walking = Boolean(session) && !formOpen && !roomDialogOpen && !characterOpen && !selectedDesk;
 
   return (
-    <main className="relative h-dvh overflow-hidden bg-[#241c16] text-[#f6efe6]" data-role={session?.role ?? "signed-out"}>
+    <main className="office-shell relative h-dvh overflow-hidden bg-[#dce7e4] text-slate-700" data-role={session?.role ?? "signed-out"}>
       <div className="absolute inset-0">
-        <OfficeCanvas
+        <SceneBoundary><OfficeCanvas
+          agentTimeZone={host ? Intl.DateTimeFormat().resolvedOptions().timeZone : shared?.hostTimeZone}
+          appearance={appearance}
+          cameraMode={cameraMode}
+          zoom={zoom}
+          gesture={gesture}
           rooms={viewRooms}
           agents={viewAgents}
           nearId={nearby && (nearby.kind === "desk" || nearby.kind === "room") ? nearby.id : null}
@@ -720,14 +748,14 @@ export function OfficeApp() {
           onPose={onPose}
           enabled={walking}
           localOffline={viewOffline}
-        />
+        /></SceneBoundary>
       </div>
       <p
-        className="pointer-events-none absolute top-4 left-4 max-w-sm text-sm text-[#f6efe6] drop-shadow"
+        className="office-brand pointer-events-none absolute top-4 left-4 max-w-sm rounded-2xl border border-white/70 bg-white/85 px-5 py-3 text-sm text-slate-700 shadow-sm backdrop-blur"
         data-testid="floor"
       >
-        <span className="font-display text-2xl">Escritório de IA</span>
-        <span className="mt-1 block text-xs tracking-[0.14em] uppercase">
+        <span className="text-lg font-semibold tracking-tight">Escritório de IA</span>
+        <span className="mt-1 block text-[10px] tracking-[0.14em] text-teal-700 uppercase">
           {FLOOR_LABELS[floor]}
           {session?.role === "colleague" ? " · só olhando" : ""}
         </span>
@@ -742,18 +770,18 @@ export function OfficeApp() {
         posição
       </p>
       {session?.role === "colleague" ? (
-        <p className="pointer-events-none absolute top-4 right-4 max-w-xs text-right text-xs leading-5 text-[#f6efe6]">
+        <p className="office-status pointer-events-none absolute top-4 right-4 max-w-xs text-right text-xs leading-5 text-[#f6efe6]">
           {shared
             ? "Você está só olhando. Quem só olha não solta card nem inicia agente."
             : "Esperando a pessoa desta máquina publicar o escritório."}
         </p>
       ) : host ? (
-        <p className="pointer-events-none absolute top-4 right-4 max-w-xs text-right text-xs leading-5 text-[#f6efe6]/80">
+        <p className="office-status pointer-events-none absolute top-4 right-4 max-w-xs rounded-xl bg-white/80 p-3 text-right text-[10px] leading-5 text-slate-500 shadow-sm backdrop-blur">
           {localNotice || notice}
         </p>
       ) : null}
       {currentRoom && floor === "ground" ? (
-        <div className="absolute top-20 right-3 z-10 sm:top-16">
+        <div className="office-board absolute top-24 inset-x-3 z-30 sm:inset-x-auto sm:top-24 sm:right-4">
           <BoardPanel
             roomName={currentRoom.name}
             projectId={currentRoom.id}
@@ -778,7 +806,7 @@ export function OfficeApp() {
         </div>
       ) : null}
       {session && prompt ? (
-        <div className="absolute bottom-6 left-1/2 z-10 w-[min(100%,28rem)] -translate-x-1/2 px-3">
+        <div className="office-interact absolute bottom-36 left-1/2 z-10 w-[min(100%,28rem)] -translate-x-1/2 px-3">
           <div className="rounded-3xl bg-[#f7f1e8]/95 p-3 text-[#241c16] shadow-xl">
             {nearAgent ? <NearbyDesk agent={nearAgent} offline={viewOffline} /> : null}
             {nearby?.kind === "reception" && host ? (
@@ -805,8 +833,8 @@ export function OfficeApp() {
           </div>
         </div>
       ) : session ? (
-        <p className="pointer-events-none absolute bottom-6 left-1/2 w-[min(100%,36rem)] -translate-x-1/2 px-4 text-center text-xs leading-5 text-[#f6efe6]">
-          WASD anda · setas giram · arraste o mouse para olhar · clique no chão · E interage
+        <p className="office-hint pointer-events-none absolute bottom-36 left-1/2 w-[min(100%,36rem)] -translate-x-1/2 px-4 text-center text-xs leading-5 text-slate-600">
+          Clique para explorar · WASD para andar · E para interagir
         </p>
       ) : null}
       {session ? <OfficeCall /> : null}
@@ -821,6 +849,10 @@ export function OfficeApp() {
           onColleague={() => void signIn("colleague", colleagueName)}
         />
       ) : null}
+      {session && <OfficeHud onCharacter={() => setCharacterOpen(true)} onGesture={kind => setGesture({kind, stamp: Date.now()})} cameraMode={cameraMode} onCamera={setCameraMode} zoom={zoom} onZoom={setZoom} pose={pose} floor={floor} rooms={viewRooms} agents={viewAgents} />}
+
+      {selectedDesk && <AgentPanel key={selectedDesk.id} agent={selectedDesk} name={selectedDesk.displayName} host={host} offline={viewOffline} dispatches={dispatches.filter(d => d.deskId === selectedDesk.id)} rooms={viewRooms} onClose={() => setSelectedDeskId(null)} onBoard={id => { setSelectedDeskId(null); openRoom(id); }} onAssign={carried && currentRoom ? async () => { await finishDrop(carried, selectedDesk.id); } : undefined} onHire={() => { setSelectedDeskId(null); openForm(); }} />}
+      <CharacterCreator open={characterOpen} onOpenChange={setCharacterOpen} appearance={appearance} onChange={setAppearance} />
       <OpenRoomDialog
         open={roomDialogOpen}
         onOpenChange={setRoomDialogOpen}
@@ -868,7 +900,7 @@ function promptFor(
   }
   if (nearby.kind === "desk") {
     if (carrying && host) return { label: "Soltar card nesta mesa", enabled: true };
-    return { label: host ? "Mesa" : "Mesa · só olhando", enabled: !carrying };
+    return { label: host ? "Ver agente" : "Ver agente · só olhando", enabled: !carrying };
   }
   if (nearby.kind === "reception") {
     return host

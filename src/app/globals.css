@@ -53,3 +53,74 @@ input,
 select {
   font: inherit;
 }
+
+.avatar-dialog { animation: avatar-enter 220ms ease-out; }
+.avatar-swatch { display: grid; place-items: center; width: 2.25rem; height: 2.25rem; border-radius: 50%; border: 3px solid transparent; transition: transform 160ms, box-shadow 160ms; cursor: pointer; }
+.avatar-swatch:hover { transform: translateY(-2px); }
+.avatar-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px #217b68; border-color: white; }
+.avatar-option { display: flex; align-items: center; justify-content: space-between; border: 1px solid #dfe5e7; border-radius: .75rem; padding: .75rem; background: white; font-size: .75rem; color: #64748b; transition: 160ms; }
+.avatar-option.selected { border-color: #2b8f79; background: #e7f4ee; color: #206753; }
+.social-dock { position: absolute; bottom: 1.25rem; left: 50%; transform: translateX(-50%); z-index: 25; display: flex; gap: .25rem; padding: .4rem; border: 1px solid #ffffffbb; border-radius: 1.25rem; background: #ffffffdf; color: #566476; box-shadow: 0 12px 36px #263c4b18; backdrop-filter: blur(20px); }
+.social-dock button { position: relative; display: grid; place-items: center; width: 2.8rem; height: 2.8rem; border-radius: .85rem; transition: background 160ms, transform 160ms; cursor: pointer; }
+.social-dock button:hover { background: #e8f3ed; color: #237862; transform: translateY(-2px); }
+.social-dock button.active { background: #e2f0e9; color: #237862; }
+.social-dock button span { position: absolute; bottom: 3.4rem; padding: .35rem .6rem; border-radius: .5rem; white-space: nowrap; background: #263845; color: white; font-size: 10px; opacity: 0; pointer-events: none; transition: opacity 150ms; }
+.social-dock button:hover span, .social-dock button:focus-visible span { opacity: 1; }
+.office-minimap { position: absolute; right: 1rem; bottom: 5.4rem; z-index: 15; width: 10rem; padding: .85rem; border: 1px solid #ffffffbb; border-radius: 1rem; background: #ffffffd9; box-shadow: 0 6px 24px #263c4b15; backdrop-filter: blur(16px); }
+.office-minimap > svg { width: 100%; height: 8rem; }
+.office-shell button:focus-visible { outline: 2px solid #29977d; outline-offset: 3px; }
+kbd { display: inline-block; border: 1px solid #dce3e6; border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; font-size: 11px; background: #f4f6f5; }
+@keyframes avatar-enter { from { opacity: 0; margin-top: 8px; } to { opacity: 1; margin-top: 0; } }
+@media (max-width: 640px) { .office-minimap { width: 7rem; padding: .6rem; } .office-minimap > svg { height: 5rem; } .call-panel { width: 7rem; } .social-dock button { width: 2.5rem; height: 2.5rem; } }
+@media (prefers-reduced-motion: reduce) { .avatar-dialog { animation: none; } .social-dock button, .avatar-swatch, .avatar-option { transition: none; } }
+.camera-modes { position: absolute; left: 50%; bottom: 5rem; transform: translateX(-50%); z-index: 25; display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: #fffffff0; border: 1px solid #ffffffbb; box-shadow: 0 4px 20px #263c4b15; color: #566476; }
+.camera-modes button { display: flex; align-items: center; gap: 5px; padding: 8px 10px; border-radius: 8px; font-size: 11px; white-space: nowrap; cursor: pointer; }
+.camera-modes button[aria-pressed="true"] { background: #e2f0e9; color: #237862; }
+
+/* Keep the scene controls in distinct, comfortably spaced bands. */
+.office-shell { --hud-bottom: max(1rem, env(safe-area-inset-bottom)); }
+.social-dock { bottom: var(--hud-bottom); gap: .5rem; padding: .5rem; max-width: calc(100% - 2rem); }
+.social-dock button { flex: 0 0 2.75rem; width: 2.75rem; height: 2.75rem; }
+.camera-modes { bottom: calc(var(--hud-bottom) + 4.5rem); gap: .375rem; padding: .375rem; max-width: calc(100% - 1.5rem); }
+.camera-modes button { justify-content: center; min-height: 2.5rem; padding: .5rem .75rem; font-size: .75rem; line-height: 1.4; }
+.camera-modes svg, .call-heading svg { flex-shrink: 0; }
+.office-minimap { bottom: calc(var(--hud-bottom) + 8.75rem); }
+.office-zoom button { min-width: 2.5rem; min-height: 2.5rem; }
+.office-help { bottom: calc(var(--hud-bottom) + 8.75rem); max-height: calc(100dvh - 11rem); overflow-y: auto; }
+.office-brand { line-height: 1.5; }
+.office-brand > span + span { line-height: 1.6; }
+.call-panel { width: 11rem; padding: .75rem; max-height: calc(100dvh - 16rem); overflow-y: auto; }
+.call-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; width: 100%; min-height: 2.5rem; font-size: .75rem; font-weight: 600; line-height: 1.5; text-align: left; cursor: pointer; }
+.call-controls button { min-height: 2.75rem; min-width: 2.75rem; }
+.call-panel video { margin-top: .5rem; height: 5rem; }
+.call-collapsed video, .call-collapsed > p, .call-collapsed > div:not(.call-controls) { display: none; }
+.office-shell [data-testid="interact"] { min-height: 2.75rem; height: auto; padding: .75rem 1rem; white-space: normal; line-height: 1.5; }
+.office-shell > div:has([data-testid="interact"]) { bottom: calc(var(--hud-bottom) + 8.75rem); }
+.office-shell > div:has([data-testid="interact"]) > div { padding: 1rem; }
+.office-shell > div:has([data-testid="interact"]) p { line-height: 1.6; overflow-wrap: anywhere; }
+@media (max-width: 900px) {
+  .office-minimap { width: 8rem; padding: .75rem; }
+  .office-minimap > svg { height: 6rem; }
+  .office-shell:has([data-testid="interact"]) .office-minimap { display: none; }
+}
+@media (max-width: 640px) {
+  .office-brand { top: .75rem; left: .75rem; max-width: 11rem; padding: .75rem; }
+  .office-brand > span:first-child { font-size: 1rem; }
+  .office-shell > p.absolute.right-4 { top: .75rem; right: .75rem; max-width: calc(100% - 13rem); padding: .5rem; font-size: .6875rem; line-height: 1.6; overflow-wrap: anywhere; }
+  .call-panel { top: 6.5rem; left: .75rem; width: 9.25rem; padding: .625rem; }
+  .camera-modes { width: calc(100% - 1.5rem); }
+  .camera-modes button { flex: 1; min-width: 0; gap: .25rem; padding: .5rem .25rem; font-size: .6875rem; }
+  .social-dock { gap: .375rem; }
+  .office-minimap { right: .75rem; width: 8rem; }
+  .office-shell > p.bottom-36 { bottom: calc(var(--hud-bottom) + 8.75rem); max-width: 100%; padding-inline: 1.25rem; }
+  .office-shell > div:has([data-testid="interact"]) { max-height: calc(100dvh - 15rem); overflow-y: auto; }
+}
+@media (max-height: 560px) {
+  .office-minimap { display: none; }
+  .call-panel { max-height: calc(100dvh - 8rem); }
+  .office-help { max-height: calc(100dvh - 10rem); }
+}
+@media (max-width: 640px) {
+  .office-hint { display: none; }
+  .office-board { width: calc(100% - 1.5rem); }
+}

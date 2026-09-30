@@ -7,7 +7,7 @@ import type { AgentEvent, AgentStatus } from "@/domain/agent-event";
 import { codexPoll, onCodexMessage, openCodexWatch, parseCodexLine } from "@/domain/codex-app-server";
 import { localAgentEvent } from "@/domain/local-hooks";
 import { isAbortError } from "@/domain/observe-cursor";
-import { abortableSleep } from "@/app/api/observe/route";
+import { abortableSleep } from "@/server/abortable-sleep";
 
 /**
  * Reads the local Codex app-server only while the page request is open.

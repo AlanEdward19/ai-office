@@ -8,12 +8,12 @@ export type DropRefusal =
   | "dispatch_not_available";
 
 export type DropDecision =
-  | { ok: true; deskId: string; provider: "cursor" }
+  | { ok: true; deskId: string; provider: ProviderId }
   | { ok: false; reason: DropRefusal; provider: ProviderId | null };
 
 /**
  * A card can leave the board only onto a desk that already keeps a ficha.
- * Cursor is the only company with a dispatch. The others stay refused.
+ * Each authenticated provider can receive the issue on its hired desk.
  */
 export function decideDrop(input: {
   desk: { id: string; form: JobForm | null } | null;
@@ -27,10 +27,7 @@ export function decideDrop(input: {
   if (!input.loggedIn.includes(provider)) {
     return { ok: false, reason: "provider_not_logged_in", provider };
   }
-  if (provider !== "cursor") {
-    return { ok: false, reason: "dispatch_not_available", provider };
-  }
-  return { ok: true, deskId: input.desk.id, provider: "cursor" };
+  return { ok: true, deskId: input.desk.id, provider };
 }
 
 export function serverDispatchCopy(code: string, provider: ProviderId | null): string {

@@ -149,7 +149,7 @@ test("a new card is created inside the room project", () => {
   assert.equal(detail?.description, "Texto");
 });
 
-test("a drop uses the ficha and only Cursor can be dispatched", () => {
+test("a drop uses the ficha and dispatches every authenticated provider", () => {
   const cursorDesk = { id: "desk-cursor", form: { role: "Pesquisador", provider: "cursor" as const } };
   const claudeDesk = { id: "desk-claude", form: { role: "Editor", provider: "anthropic" as const } };
   const codexDesk = { id: "desk-codex", form: { role: "Revisor", provider: "openai" as const } };
@@ -159,14 +159,16 @@ test("a drop uses the ficha and only Cursor can be dispatched", () => {
   assert.equal(loggedOut.ok, false);
   if (!loggedOut.ok) assert.equal(loggedOut.reason, "provider_not_logged_in");
   const claude = decideDrop({ desk: claudeDesk, loggedIn: ["anthropic"] });
-  assert.equal(claude.ok, false);
-  if (!claude.ok) {
-    assert.equal(claude.reason, "dispatch_not_available");
-    assert.match(refusalCopy(claude.reason, claude.provider), /Anthropic/);
-    assert.match(serverDispatchCopy("dispatch_not_available", "openai"), /OpenAI/);
-  }
+  assert.deepEqual(claude, { ok: true, deskId: "desk-claude", provider: "anthropic" });
+  assert.match(refusalCopy("provider_not_logged_in", "anthropic"), /Anthropic/);
+  assert.match(serverDispatchCopy("provider_not_logged_in", "openai"), /OpenAI/);
   const codex = decideDrop({ desk: codexDesk, loggedIn: ["openai"] });
-  assert.equal(codex.ok, false);
+  assert.deepEqual(codex, { ok: true, deskId: "desk-codex", provider: "openai" });
+  for (const desk of [cursorDesk, claudeDesk, codexDesk]) {
+    assert.deepEqual(decideDrop({ desk, loggedIn: [] }), {
+      ok: false, reason: "provider_not_logged_in", provider: desk.form.provider,
+    });
+  }
   const cursor = decideDrop({ desk: cursorDesk, loggedIn: ["cursor"] });
   assert.deepEqual(cursor, { ok: true, deskId: "desk-cursor", provider: "cursor" });
 });

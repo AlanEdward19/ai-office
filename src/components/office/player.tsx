@@ -1,19 +1,26 @@
 "use client";
 
-import { useFrame, useThree } from "@react-three/fiber";
-import { useEffect, useRef } from "react";
-import { Plane, Raycaster, Vector2, Vector3, type Group } from "three";
+import { cameraView, type CameraMode } from "@/domain/camera";
 
+import { useFrame, useThree } from "@react-three/fiber";
+import { useEffect, useRef, type RefObject } from "react";
+import { Plane, Raycaster, Vector2, Vector3, type Group, type Mesh } from "three";
+
+import { type Appearance, type AvatarMotion, type Gesture } from "@/domain/character";
 import type { FloorId } from "@/domain/floors";
 import {
   LOBBY_SPAWN,
   arrivalPose,
+  avatarRotation,
   integrateWalk,
   nearestTarget,
   walkBounds,
   type InteractTarget,
   type Pose,
+  type Obstacle,
 } from "@/domain/walker";
+
+import { Avatar } from "./avatar";
 
 const raycaster = new Raycaster();
 const pointer = new Vector2();
@@ -27,21 +34,40 @@ function typingTarget(target: EventTarget | null) {
 }
 
 export function OfficePlayer({
+  appearance,
+  cameraMode,
+  zoom,
+  gesture,
+  obstacles,
+  cameraWalls,
   floor,
   targets,
   enabled,
   onNearby,
   onPose,
 }: {
+  appearance: Appearance;
+  cameraMode: CameraMode;
+  zoom: number;
+  gesture: { kind: Gesture; stamp: number } | null;
+  obstacles: RefObject<Obstacle[]>;
+  cameraWalls: RefObject<Mesh[]>;
   floor: FloorId;
   targets: readonly InteractTarget[];
   enabled: boolean;
   onNearby: (target: InteractTarget | null) => void;
   onPose: (pose: Pose) => void;
 }) {
+  const cameraRay = useRef(new Raycaster());
+  const cameraOrigin = useRef(new Vector3());
+  const cameraDirection = useRef(new Vector3());
   const camera = useThree((state) => state.camera);
   const gl = useThree((state) => state.gl);
   const body = useRef<Group>(null);
+  const motion = useRef<AvatarMotion>({ moving: false, gesture: null, gestureStarted: 0 });
+  const gestureStamp = useRef(-1);
+  const cameraPosition = useRef(new Vector3());
+  const cameraFocus = useRef(new Vector3(0, 0.7, 0));
   const pose = useRef<Pose>(LOBBY_SPAWN);
   const target = useRef<{ x: number; z: number } | null>(null);
   const keys = useRef(new Set<string>());
@@ -141,45 +167,66 @@ export function OfficePlayer({
     };
   }, [camera, gl]);
 
-  useFrame((_, dt) => {
+  useFrame(({ clock }, dt) => {
     const held = keys.current;
     const moving = enabledRef.current;
+    const keyboardForward = moving && (held.has("KeyW") || held.has("ArrowUp")) ? 1 : moving && (held.has("KeyS") || held.has("ArrowDown")) ? -1 : 0;
+    const keyboardStrafe = moving && (held.has("KeyD") || (cameraMode === "isometric" && held.has("ArrowRight"))) ? 1 : moving && (held.has("KeyA") || (cameraMode === "isometric" && held.has("ArrowLeft"))) ? -1 : 0;
     const walk = integrateWalk(
       pose.current,
       {
-        forward: moving && (held.has("KeyW") || held.has("ArrowUp")) ? 1 : moving && (held.has("KeyS") || held.has("ArrowDown")) ? -1 : 0,
-        strafe: moving && held.has("KeyD") ? 1 : moving && held.has("KeyA") ? -1 : 0,
-        turn: moving && held.has("ArrowRight") ? 1 : moving && held.has("ArrowLeft") ? -1 : 0,
-        yawDelta: moving ? look.current.yaw : 0,
+        forward: keyboardForward,
+        strafe: keyboardStrafe,
+        turn: cameraMode === "isometric" ? 0 : moving && held.has("ArrowRight") ? 1 : moving && held.has("ArrowLeft") ? -1 : 0,
+        yawDelta: cameraMode === "isometric" && (keyboardForward || keyboardStrafe) ? -Math.PI / 4 - pose.current.yaw : moving && cameraMode !== "isometric" ? look.current.yaw : 0,
         pitchDelta: moving ? look.current.pitch : 0,
       },
       moving ? target.current : null,
       dt,
       walkBounds(floorRef.current),
+      obstacles.current,
     );
     look.current.yaw = 0;
     look.current.pitch = 0;
+    const displaced = Math.hypot(walk.pose.x - pose.current.x, walk.pose.z - pose.current.z) > 0.0001;
+    motion.current.moving = displaced;
+    if (gesture && gesture.stamp !== gestureStamp.current) {
+      gestureStamp.current = gesture.stamp;
+      motion.current.gesture = gesture.kind;
+      motion.current.gestureStarted = clock.elapsedTime;
+    }
+    if (displaced) motion.current.gesture = null;
+    if (cameraMode === "isometric" && displaced) walk.pose.yaw = Math.atan2(walk.pose.x - pose.current.x, -(walk.pose.z - pose.current.z));
     pose.current = walk.pose;
     target.current = walk.target;
 
     const yaw = walk.pose.yaw;
-    const pitch = walk.pose.pitch;
-    const distance = 2.55;
-    const shoulder = 0.38;
-    camera.position.set(
-      walk.pose.x - Math.sin(yaw) * distance + Math.cos(yaw) * shoulder,
-      1.72 + pitch * 0.2,
-      walk.pose.z + Math.cos(yaw) * distance + Math.sin(yaw) * shoulder,
-    );
-    camera.lookAt(
-      walk.pose.x + Math.sin(yaw) * 4,
-      1.22 - pitch * 1.35,
-      walk.pose.z - Math.cos(yaw) * 4,
-    );
+    const view = cameraView(cameraMode, walk.pose, zoom);
+    cameraPosition.current.set(view.position[0], view.position[1], view.position[2]);
+    const focus = new Vector3(view.focus[0], view.focus[1], view.focus[2]);
+    if (cameraMode === "first") {
+      // Eye position must follow the body exactly so movement and looking stay aligned.
+      camera.position.copy(cameraPosition.current);
+      cameraFocus.current.copy(focus);
+    } else {
+      cameraFocus.current.lerp(focus, 1 - Math.exp(-8 * dt));
+    }
+    camera.position.lerp(cameraPosition.current, 1 - Math.exp(-7 * Math.min(dt, 0.1)));
+    if (cameraMode === "third") {
+      cameraOrigin.current.set(walk.pose.x, 1.45, walk.pose.z);
+      cameraDirection.current.copy(camera.position).sub(cameraOrigin.current);
+      const distance = cameraDirection.current.length();
+      cameraDirection.current.normalize();
+      cameraRay.current.set(cameraOrigin.current, cameraDirection.current);
+      cameraRay.current.far = distance;
+      const obstruction = cameraRay.current.intersectObjects(cameraWalls.current, false)[0];
+      if (obstruction) camera.position.copy(cameraOrigin.current).addScaledVector(cameraDirection.current, Math.max(0.15, obstruction.distance - 0.2));
+    }
+    camera.lookAt(cameraFocus.current);
 
     if (body.current) {
       body.current.position.set(walk.pose.x, 0, walk.pose.z);
-      body.current.rotation.y = yaw;
+      body.current.rotation.y = avatarRotation(yaw);
     }
 
     const near = nearestTarget(walk.pose.x, walk.pose.z, targetsRef.current);
@@ -197,13 +244,9 @@ export function OfficePlayer({
 
   return (
     <group ref={body} name="player" position={[LOBBY_SPAWN.x, 0, LOBBY_SPAWN.z]}>
-      <mesh position={[0, 0.92, 0]} castShadow name="player-body">
-        <capsuleGeometry args={[0.22, 0.62, 6, 12]} />
-        <meshStandardMaterial color="#9c4221" roughness={0.55} />
-      </mesh>
-      <mesh position={[0, 1.52, 0]} castShadow>
-        <sphereGeometry args={[0.18, 20, 20]} />
-        <meshStandardMaterial color="#f3d5bf" roughness={0.6} />
+      <group visible={cameraMode !== "first"}><Avatar appearance={appearance} motion={motion} /></group>
+      <mesh visible={cameraMode !== "first"} position={[0, 0.075, 0]} rotation={[-Math.PI / 2, 0, 0]} userData={{ noCollision: true }}>
+        <ringGeometry args={[0.37, 0.41, 48]} /><meshBasicMaterial color="#78d9ba" transparent opacity={0.65} />
       </mesh>
     </group>
   );

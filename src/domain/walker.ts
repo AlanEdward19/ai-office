@@ -8,6 +8,9 @@ export type Pose = {
   pitch: number;
 };
 
+export type Obstacle = { minX: number; maxX: number; minZ: number; maxZ: number };
+export const PLAYER_RADIUS = 0.24;
+
 export type WalkBounds = {
   minX: number;
   maxX: number;
@@ -20,6 +23,11 @@ export const LOBBY_SPAWN: Pose = { x: 0, z: 2.6, yaw: 0, pitch: -0.08 };
 
 export const WALK_SPEED = 4.2;
 export const TURN_SPEED = 2.2;
+
+/** Our yaw turns toward +X; Three.js rotates the avatar's -Z front toward -X. */
+export function avatarRotation(yaw: number): number {
+  return -yaw;
+}
 export const INTERACT_REACH = 1.9;
 
 export type InteractKind = "desk" | "room" | "elevator" | "hire" | "reception";
@@ -55,7 +63,7 @@ export function interactTargets(input: {
   }
   targets.push({ kind: "reception", id: "reception", x: RECEPTION.x, z: RECEPTION.z - 1.2 });
   for (const room of input.rooms) {
-    targets.push({ kind: "room", id: room.id, x: room.x, z: room.z - 1.35 });
+    targets.push({ kind: "room", id: room.id, x: room.x, z: room.z + 2.6 });
   }
   for (const agent of input.agents) {
     targets.push({ kind: "desk", id: agent.id, x: agent.x, z: agent.z + 1.05 });
@@ -103,6 +111,7 @@ export function integrateWalk(
   target: { x: number; z: number } | null,
   dt: number,
   bounds: WalkBounds,
+  obstacles: readonly Obstacle[] = [],
 ): { pose: Pose; target: { x: number; z: number } | null } {
   let remaining = clamp(dt, 0, 1);
   let { x, z } = pose;
@@ -125,7 +134,9 @@ export function integrateWalk(
   }
 
   while (remaining > 0) {
-    const step = Math.min(remaining, 0.05);
+    const step = Math.min(remaining, 0.02);
+    const previousX = x;
+    const previousZ = z;
     remaining -= step;
     yaw += keys.turn * TURN_SPEED * step;
     if (keyboard) {
@@ -148,6 +159,15 @@ export function integrateWalk(
         z += (dz / dist) * move;
       }
     }
+    const blocked = (px: number, pz: number) => obstacles.some((solid) =>
+      px > solid.minX - PLAYER_RADIUS && px < solid.maxX + PLAYER_RADIUS &&
+      pz > solid.minZ - PLAYER_RADIUS && pz < solid.maxZ + PLAYER_RADIUS,
+    );
+    x = clamp(x, bounds.minX, bounds.maxX);
+    z = clamp(z, bounds.minZ, bounds.maxZ);
+    if (blocked(x, previousZ)) x = previousX;
+    if (blocked(x, z)) z = previousZ;
+    if (nextTarget && Math.hypot(x - previousX, z - previousZ) < 0.00001) nextTarget = null;
   }
 
   return {

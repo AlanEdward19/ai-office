@@ -46,9 +46,9 @@ export function BoardPanel({
   const issues = state.status === "ready" ? state.issues.filter((issue) => issue.projectId === projectId) : [];
 
   return (
-    <section className="pointer-events-auto flex max-h-[min(46dvh,34rem)] w-[min(100%,22rem)] flex-col overflow-hidden rounded-3xl bg-[#f7f1e8]/95 text-[#241c16] shadow-xl">
-      <div className="flex items-start justify-between gap-3 px-4 pt-3">
-        <div>
+    <section className="pointer-events-auto flex max-h-[min(55dvh,34rem)] w-full sm:w-[24rem] flex-col overflow-hidden rounded-3xl bg-[#f7f1e8]/95 text-[#241c16] shadow-xl">
+      <div className="flex items-start justify-between gap-4 px-5 pt-5">
+        <div className="min-w-0 break-words">
           <p className="text-[0.65rem] tracking-[0.16em] text-[#8c7b6b] uppercase">Quadro</p>
           <h2 className="font-display text-2xl leading-tight">{roomName}</h2>
         </div>
@@ -71,8 +71,9 @@ export function BoardPanel({
           }}
         >
           <Label htmlFor="card-title">Novo card</Label>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-3">
             <Input
+              className="min-w-0 flex-1 basis-40"
               id="card-title"
               value={title}
               maxLength={200}

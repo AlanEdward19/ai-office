@@ -1,5 +1,6 @@
 "use client";
 
+import { Mic, MicOff, Video, VideoOff, ChevronDown, ChevronUp } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { callInitiator, isPeerId, parseCallSignal, type CallPeer, type CallSignal } from "@/domain/call";
@@ -23,6 +24,7 @@ type PeerLink = {
  * The dev server only forwards the signal while those pages stay connected.
  */
 export function OfficeCall() {
+  const [collapsed, setCollapsed] = useState(true);
   const [audioOn, setAudioOn] = useState(true);
   const [videoOn, setVideoOn] = useState(true);
   const [remotes, setRemotes] = useState<RemoteTile[]>([]);
@@ -274,12 +276,12 @@ export function OfficeCall() {
 
   return (
     <section
-      className="absolute top-24 left-3 z-20 w-44 rounded-2xl bg-[#f7f1e8]/95 p-2 text-[#241c16] shadow-lg"
+      className={`call-panel absolute top-24 left-4 z-20 rounded-2xl border border-white/70 bg-white/85 text-slate-700 shadow-sm backdrop-blur ${collapsed ? "call-collapsed" : ""}`}
       data-testid="call-panel"
       data-audio={audioOn ? "on" : "off"}
       data-video={videoOn ? "on" : "off"}
     >
-      <p className="px-1 text-[0.65rem] tracking-[0.14em] text-[#8c7b6b] uppercase">Chamada direta</p>
+      <button type="button" className="call-heading" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed} aria-label={collapsed ? "Expandir chamada" : "Recolher chamada"}><span>Chamada direta</span>{collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}</button>
       <video
         ref={localVideo}
         data-testid="call-local"
@@ -288,23 +290,23 @@ export function OfficeCall() {
         autoPlay
         muted
         playsInline
-        className="mt-1 h-20 w-full rounded-md bg-black object-cover"
+        className="mt-1 h-16 w-full rounded-xl bg-black object-cover"
       />
-      <p className="mt-1 truncate px-1 text-xs">Você{videoOn ? "" : " · câmera desligada"}{audioOn ? "" : " · mudo"}</p>
+      <p className="mt-2 px-1 text-xs leading-5 break-words">Você{videoOn ? "" : " · câmera desligada"}{audioOn ? "" : " · mudo"}</p>
       {remotes.length === 0 ? (
-        <p className="mt-2 px-1 text-xs leading-4 text-[#5c5148]" data-testid="call-waiting">
+        <p className="mt-3 px-1 text-xs leading-5 text-[#5c5148]" data-testid="call-waiting">
           {ready ? "Só você nesta chamada." : hint || "Abrindo câmera e microfone…"}
         </p>
       ) : (
         remotes.map((tile) => <RemoteVideo key={tile.id} tile={tile} />)
       )}
       {hint && remotes.length > 0 ? <p className="mt-1 px-1 text-xs text-[#9c4221]">{hint}</p> : null}
-      <div className="mt-2 grid gap-1">
-        <Button type="button" variant="outline" size="sm" data-testid="call-mic" aria-pressed={audioOn} onClick={toggleAudio}>
-          {audioOn ? "Desligar microfone" : "Ligar microfone"}
+      <div className="call-controls mt-3 grid grid-cols-2 gap-2">
+        <Button type="button" variant="outline" size="sm" data-testid="call-mic" aria-label={audioOn ? "Desligar microfone" : "Ligar microfone"} title={audioOn ? "Desligar microfone" : "Ligar microfone"} aria-pressed={audioOn} onClick={toggleAudio}>
+          {audioOn ? <Mic size={15} /> : <MicOff size={15} />}
         </Button>
-        <Button type="button" variant="outline" size="sm" data-testid="call-camera" aria-pressed={videoOn} onClick={toggleVideo}>
-          {videoOn ? "Desligar câmera" : "Ligar câmera"}
+        <Button type="button" variant="outline" size="sm" data-testid="call-camera" aria-label={videoOn ? "Desligar câmera" : "Ligar câmera"} title={videoOn ? "Desligar câmera" : "Ligar câmera"} aria-pressed={videoOn} onClick={toggleVideo}>
+          {videoOn ? <Video size={15} /> : <VideoOff size={15} />}
         </Button>
       </div>
     </section>
@@ -332,9 +334,9 @@ function RemoteVideo({ tile }: { tile: RemoteTile }) {
         autoPlay
         muted={!tile.audio}
         playsInline
-        className="h-20 w-full rounded-md bg-black object-cover"
+        className="h-16 w-full rounded-xl bg-black object-cover"
       />
-      <p className="mt-1 truncate px-1 text-xs">
+      <p className="mt-2 px-1 text-xs leading-5 break-words">
         {tile.name}
         {tile.stream ? "" : " · ligando"}
         {tile.video ? "" : " · câmera desligada"}
