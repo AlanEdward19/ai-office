@@ -59,6 +59,7 @@ export default function OfficeCanvas({
   floor,
   onRideElevator,
   onHire,
+  localOffline,
   hitRef,
   resetSignal,
 }: {
@@ -72,6 +73,7 @@ export default function OfficeCanvas({
   floor: FloorId;
   onRideElevator: () => void;
   onHire: () => void;
+  localOffline: boolean;
   hitRef: RefObject<DeskHit | null>;
   resetSignal: number;
 }) {
@@ -101,6 +103,7 @@ export default function OfficeCanvas({
         floor={floor}
         onRideElevator={onRideElevator}
         onHire={onHire}
+        localOffline={localOffline}
         resetSignal={resetSignal}
       />
     </Canvas>

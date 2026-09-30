@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { isAgentEvent, STATUS_LABELS, type AgentEvent } from "@/domain/agent-event";
+import { isMachinePresence, presentLocalEvent, type MachinePresence } from "@/domain/local-hooks";
 import {
   decideDrop,
   preferredCursorDeskId,
@@ -14,7 +15,7 @@ import { FLOOR_LABELS, rideElevator, type FloorId } from "@/domain/floors";
 import { issuesForProject, mergeRoomIssues, type RoomIssue } from "@/domain/issues";
 import type { JobForm } from "@/domain/job-form";
 import { projectsWithoutRooms, roomsFromBindings } from "@/domain/opened-rooms";
-import { bindAgents } from "@/domain/placement";
+import { bindAgents, bindLocalWing, type PlacedAgent } from "@/domain/placement";
 import { isProviderId, PROVIDER_LABELS, type ProviderId } from "@/domain/providers";
 import { layoutRooms, type LinearProject } from "@/domain/rooms";
 import { JobFormCard } from "@/components/hiring/job-form-card";
@@ -75,6 +76,14 @@ export function OfficeApp() {
   const desks = useMemo(() => deskStore.desksFrom(deskSnapshot), [deskSnapshot]);
   const [observed, setObserved] = useState<AgentEvent | null>(null);
   const [notice, setNotice] = useState("Conectando o observador…");
+  const [localEvents, setLocalEvents] = useState<{
+    cursor: AgentEvent | null;
+    anthropic: AgentEvent | null;
+  }>({ cursor: null, anthropic: null });
+  const [presence, setPresence] = useState<MachinePresence | null>(null);
+  const [localLink, setLocalLink] = useState<"connecting" | "online" | "offline">("connecting");
+  const [localNotice, setLocalNotice] = useState("Conectando a ala local…");
+  const localOnlineRef = useRef(false);
   const [floor, setFloor] = useState<FloorId>("ground");
   const [roomDialogOpen, setRoomDialogOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
@@ -130,6 +139,67 @@ export function OfficeApp() {
     source.onerror = () => setNotice("A ligação com o observador caiu. A página tenta de novo.");
     return () => {
       source.removeEventListener("agent", onAgent);
+      source.removeEventListener("notice", onNotice);
+      source.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    const source = new EventSource("/api/local");
+    let closed = false;
+    const dropWorking = () => {
+      localOnlineRef.current = false;
+      setLocalLink("offline");
+      setLocalEvents((current) => ({
+        cursor: current.cursor ? presentLocalEvent(current.cursor, false) : null,
+        anthropic: current.anthropic ? presentLocalEvent(current.anthropic, false) : null,
+      }));
+    };
+    const onAgent = (event: Event) => {
+      const parsed = parsePayload((event as MessageEvent).data);
+      if (!isAgentEvent(parsed) || parsed.origin !== "local") return;
+      const provider = parsed.provider;
+      if (provider !== "cursor" && provider !== "anthropic") return;
+      const shown = presentLocalEvent(parsed, localOnlineRef.current);
+      setLocalEvents((current) => ({ ...current, [provider]: shown }));
+    };
+    const onPresence = (event: Event) => {
+      const parsed = parsePayload((event as MessageEvent).data);
+      if (!isMachinePresence(parsed)) return;
+      localOnlineRef.current = parsed.online;
+      setPresence(parsed);
+      setLocalLink(parsed.online ? "online" : "offline");
+      if (!parsed.online) {
+        setLocalEvents((current) => ({
+          cursor: current.cursor ? presentLocalEvent(current.cursor, false) : null,
+          anthropic: current.anthropic ? presentLocalEvent(current.anthropic, false) : null,
+        }));
+      }
+    };
+    const onNotice = (event: Event) => {
+      const parsed = parsePayload((event as MessageEvent).data);
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        "message" in parsed &&
+        typeof parsed.message === "string"
+      ) {
+        setLocalNotice(parsed.message);
+      }
+    };
+    source.addEventListener("agent", onAgent);
+    source.addEventListener("presence", onPresence);
+    source.addEventListener("notice", onNotice);
+    source.onerror = () => {
+      if (closed) return;
+      dropWorking();
+      setLocalNotice("A ligação com a máquina local caiu. O avatar não fica trabalhando.");
+    };
+    return () => {
+      closed = true;
+      localOnlineRef.current = false;
+      source.removeEventListener("agent", onAgent);
+      source.removeEventListener("presence", onPresence);
       source.removeEventListener("notice", onNotice);
       source.close();
     };
@@ -245,7 +315,7 @@ export function OfficeApp() {
     () => layoutRooms(roomsFromBindings(projects, openedRoomIds)),
     [projects, openedRoomIds],
   );
-  const agents = useMemo(
+  const cloudAgents = useMemo(
     () =>
       bindAgents({
         desks,
@@ -254,6 +324,21 @@ export function OfficeApp() {
         preferredDeskId: preferredCursorDeskId(dispatches),
       }),
     [desks, observed, viewerName, dispatches],
+  );
+  const localAgents = useMemo(
+    () =>
+      bindLocalWing({
+        desks,
+        observed: localEvents,
+        owner: presence?.owner ?? "esta máquina",
+        machineId: presence?.machineId ?? null,
+        machineOnline: localLink === "online",
+      }),
+    [desks, localEvents, presence, localLink],
+  );
+  const agents = useMemo(
+    () => [...cloudAgents, ...localAgents],
+    [cloudAgents, localAgents],
   );
   const selected = agents.find((agent) => agent.id === selectedId) ?? null;
   const currentRoom = rooms.find((room) => room.id === openRoomId) ?? null;
@@ -336,6 +421,10 @@ export function OfficeApp() {
     }
     const desk = desks.find((item) => item.id === deskId) ?? null;
     const placed = agents.find((item) => item.id === deskId) ?? null;
+    if (!desk && placed?.event.origin === "local") {
+      setBoardMessage("A ala local não recebe card. Solte na mesa da nuvem.");
+      return;
+    }
     const target = desk
       ? { id: desk.id, form: desk.form }
       : placed
@@ -436,6 +525,7 @@ export function OfficeApp() {
           floor={floor}
           onRideElevator={() => goToFloor(rideElevator(floor))}
           onHire={openForm}
+          localOffline={localLink === "offline"}
           hitRef={hitRef}
           resetSignal={resetSignal}
         />
@@ -472,8 +562,8 @@ export function OfficeApp() {
               Escritório de IA
             </h1>
             <p className="mt-2 hidden max-w-md text-sm leading-5 text-[#5c5148] sm:block">
-              O térreo continua o lobby. O elevador só troca o andar visível, sem
-              recarregar a página.
+              O térreo continua o lobby. A ala local fica ao lado e só mostra
+              trabalho com esta página aberta.
             </p>
           </div>
           <div className="pointer-events-auto flex flex-wrap gap-2">
@@ -567,7 +657,9 @@ export function OfficeApp() {
               void finishDrop(draggingRef.current, selected.id);
             }}
           >
-            {selected?.form ? (
+            {selected?.event.origin === "local" ? (
+              <LocalSeatCard agent={selected} offline={localLink !== "online"} />
+            ) : selected?.form ? (
               <div>
                 <JobFormCard form={selected.form} status={selected.event.status} />
                 {dropArmed ? (
@@ -600,6 +692,7 @@ export function OfficeApp() {
               </div>
             )}
             <StatusLegend observed={observed} />
+            <p className="mt-2 text-xs leading-4 text-[#8c7b6b]">{localNotice}</p>
           </section>
         </div>
       </div>
@@ -630,6 +723,19 @@ export function OfficeApp() {
         onSubmit={saveDesk}
       />
     </main>
+  );
+}
+
+function LocalSeatCard({ agent, offline }: { agent: PlacedAgent; offline: boolean }) {
+  return (
+    <div className="rounded-2xl border border-[#d4b483] bg-[#243038] p-3 text-[#f6efe6]">
+      <p className="text-[0.65rem] tracking-[0.16em] text-[#d4b483] uppercase">
+        Selo local · {agent.event.owner}
+      </p>
+      <h3 className="font-display mt-1 text-lg">{PROVIDER_LABELS[agent.event.provider]}</h3>
+      {agent.form ? <p className="mt-1 text-sm text-[#d9cbb8]">{agent.form.role}</p> : null}
+      <p className="mt-2 text-sm">{offline ? "máquina offline" : STATUS_LABELS[agent.event.status]}</p>
+    </div>
   );
 }
 

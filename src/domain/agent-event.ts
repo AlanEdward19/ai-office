@@ -8,8 +8,8 @@ export type AgentStatus = (typeof AGENT_STATUSES)[number];
 
 /**
  * The only agent snapshot the scene is allowed to read.
- * Local agents are not observed in this phase; the shape already carries
- * origin and machineId so a later wing can fill them in.
+ * A cloud event keeps machineId null. A local event carries the machine id
+ * issued by the bridge that lives only while a page is open.
  */
 export type AgentEvent = {
   provider: ProviderId;
@@ -31,19 +31,22 @@ export const STATUS_LABELS: Record<AgentStatus, string> = {
 export function isAgentEvent(value: unknown): value is AgentEvent {
   if (!value || typeof value !== "object") return false;
   const event = value as Record<string, unknown>;
+  const machineOk =
+    (event.origin === "cloud" && event.machineId === null) ||
+    (event.origin === "local" &&
+      typeof event.machineId === "string" &&
+      event.machineId.trim().length > 0);
   return (
     isProviderId(event.provider) &&
-    (event.origin === "cloud" || event.origin === "local") &&
+    machineOk &&
     typeof event.owner === "string" &&
     event.owner.trim().length > 0 &&
-    (event.machineId === null || typeof event.machineId === "string") &&
     (event.projectId === null || typeof event.projectId === "string") &&
     (event.status === "idle" ||
       event.status === "working" ||
       event.status === "blocked" ||
       event.status === "done") &&
     typeof event.observedAt === "string" &&
-    event.observedAt.length > 0 &&
-    (event.origin === "local" || event.machineId === null)
+    event.observedAt.length > 0
   );
 }

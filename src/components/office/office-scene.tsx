@@ -8,7 +8,7 @@ import { MOUSE, OrthographicCamera, TOUCH, Vector3, type Group } from "three";
 import { STATUS_LABELS, type AgentStatus } from "@/domain/agent-event";
 import { ELEVATOR, type FloorId } from "@/domain/floors";
 import { PROVIDER_LABELS } from "@/domain/providers";
-import type { PlacedAgent } from "@/domain/placement";
+import { localWingPlate, type PlacedAgent } from "@/domain/placement";
 import { CEO_CORNER, RECEPTION, roomColor, type PlacedRoom } from "@/domain/rooms";
 
 const STATUS_COLOR: Record<AgentStatus, string> = {
@@ -37,6 +37,7 @@ export function OfficeScene({
   floor,
   onRideElevator,
   onHire,
+  localOffline,
   resetSignal,
 }: {
   rooms: PlacedRoom[];
@@ -49,6 +50,7 @@ export function OfficeScene({
   floor: FloorId;
   onRideElevator: () => void;
   onHire: () => void;
+  localOffline: boolean;
   resetSignal: number;
 }) {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
@@ -92,6 +94,7 @@ export function OfficeScene({
       {floor === "ground" ? (
         <>
           <LobbyFloor />
+          <LocalWing offline={localOffline} />
           <Reception />
           <CeoCorner />
           {rooms.map((room) => (
@@ -108,6 +111,7 @@ export function OfficeScene({
               agent={agent}
               selected={agent.id === selectedId}
               dropArmed={dropArmed}
+              localOffline={localOffline}
               onSelect={() => onSelectAgent(agent.id)}
             />
           ))}
@@ -207,6 +211,33 @@ function Table() {
       <boxGeometry args={[42, 0.4, 36]} />
       <meshStandardMaterial color="#2a211b" roughness={0.92} />
     </mesh>
+  );
+}
+
+function LocalWing({ offline }: { offline: boolean }) {
+  const plate = localWingPlate();
+  return (
+    <group position={[plate.x, 0, plate.z]}>
+      <mesh position={[0, -0.02, 0]} receiveShadow>
+        <boxGeometry args={[plate.width, 0.12, plate.depth]} />
+        <meshStandardMaterial color="#243038" roughness={0.86} />
+      </mesh>
+      <mesh position={[0, 0.05, 0]} receiveShadow>
+        <boxGeometry args={[plate.width - 0.28, 0.06, plate.depth - 0.28]} />
+        <meshStandardMaterial color="#d5e0e8" roughness={0.9} />
+      </mesh>
+      <ProjectedLabel
+        position={[0, 1.35, -plate.depth / 2 + 0.2]}
+        lines={
+          offline
+            ? [
+                { text: "Ala local", kind: "brass" },
+                { text: "Máquina offline", kind: "meta" },
+              ]
+            : [{ text: "Ala local", kind: "brass" }]
+        }
+      />
+    </group>
   );
 }
 
@@ -326,17 +357,36 @@ function DeskAgent({
   agent,
   selected,
   dropArmed,
+  localOffline,
   onSelect,
 }: {
   agent: PlacedAgent;
   selected: boolean;
   dropArmed: boolean;
+  localOffline: boolean;
   onSelect: () => void;
 }) {
+  const local = agent.event.origin === "local";
   const company = agent.form
     ? PROVIDER_LABELS[agent.form.provider]
     : PROVIDER_LABELS[agent.event.provider];
   const role = agent.form?.role;
+  const lines = local
+    ? [
+        { text: "Local", kind: "kicker" as const },
+        { text: company, kind: "title" as const },
+        {
+          text: localOffline
+            ? `${agent.event.owner} · máquina offline`
+            : `${agent.event.owner} · ${STATUS_LABELS[agent.event.status]}`,
+          kind: "meta" as const,
+        },
+      ]
+    : [
+        { text: company, kind: "kicker" as const },
+        { text: role ?? "Nuvem", kind: "title" as const },
+        { text: STATUS_LABELS[agent.event.status], kind: "meta" as const },
+      ];
   return (
     <group position={[agent.x, 0, agent.z]}>
       <mesh
@@ -350,13 +400,13 @@ function DeskAgent({
       >
         <boxGeometry args={[1.35, 0.72, 0.7]} />
         <meshStandardMaterial
-          color={selected ? "#f7f1e8" : "#efe2d2"}
+          color={local ? (selected ? "#5c6b78" : "#3e4c59") : selected ? "#f7f1e8" : "#efe2d2"}
           roughness={0.7}
         />
       </mesh>
       <mesh position={[0, 0.78, 0.15]}>
         <boxGeometry args={[1.42, 0.06, 0.78]} />
-        <meshStandardMaterial color="#d8c3a5" />
+        <meshStandardMaterial color={local ? "#d4b483" : "#d8c3a5"} metalness={local ? 0.35 : 0} />
       </mesh>
       <mesh position={[0.48, 0.86, 0.15]}>
         <sphereGeometry args={[0.07, 16, 16]} />
@@ -366,8 +416,8 @@ function DeskAgent({
           emissiveIntensity={agent.event.status === "working" ? 0.6 : 0.15}
         />
       </mesh>
-      <Chair position={[0, 0, -0.55]} color="#5c4636" />
-      <AgentFigure status={agent.event.status} />
+      <Chair position={[0, 0, -0.55]} color={local ? "#2c3842" : "#5c4636"} />
+      <AgentFigure status={agent.event.status} local={local} />
       {selected ? (
         <mesh position={[0, 0.03, 0.1]} rotation={[-Math.PI / 2, 0, 0]}>
           <ringGeometry args={[0.85, 0.96, 40]} />
@@ -382,27 +432,26 @@ function DeskAgent({
           />
         </mesh>
       ) : null}
-      <ProjectedLabel
-        position={[0, 1.85, 0]}
-        lines={[
-          { text: company, kind: "kicker" },
-          { text: role ?? "Nuvem", kind: "title" },
-          { text: STATUS_LABELS[agent.event.status], kind: "meta" },
-        ]}
-      />
+      <ProjectedLabel position={[0, 1.85, 0]} lines={lines} />
     </group>
   );
 }
 
-function AgentFigure({ status }: { status: AgentStatus }) {
+function AgentFigure({ status, local }: { status: AgentStatus; local: boolean }) {
   const ref = useRef<Group>(null);
   useFrame(({ clock }) => {
     if (!ref.current) return;
     ref.current.position.y =
       status === "working" ? Math.sin(clock.elapsedTime * 3.2) * 0.05 : 0;
+    ref.current.userData.status = status;
   });
   return (
-    <group ref={ref} position={[0, 0, -0.15]}>
+    <group
+      ref={ref}
+      name={local ? "local-figure" : "cloud-figure"}
+      position={[0, 0, -0.15]}
+      userData={{ status }}
+    >
       <mesh position={[0, 0.72, 0]} castShadow>
         <capsuleGeometry args={[0.16, 0.42, 6, 12]} />
         <meshStandardMaterial color={STATUS_COLOR[status]} roughness={0.55} />
@@ -411,6 +460,12 @@ function AgentFigure({ status }: { status: AgentStatus }) {
         <sphereGeometry args={[0.16, 20, 20]} />
         <meshStandardMaterial color="#f3d5bf" roughness={0.6} />
       </mesh>
+      {local ? (
+        <mesh position={[0.2, 1.02, 0.12]} castShadow name="local-badge">
+          <boxGeometry args={[0.16, 0.11, 0.04]} />
+          <meshStandardMaterial color="#d4b483" metalness={0.45} roughness={0.32} />
+        </mesh>
+      ) : null}
     </group>
   );
 }

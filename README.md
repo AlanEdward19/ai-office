@@ -53,7 +53,20 @@ The Linear issue keeps the link to that cloud agent. Closing the page stops the 
 
 ## Cloud agent status
 
-While the tab is open, the app follows one Cursor cloud agent: `ACTIVE` or `RUNNING` shows as working, and `FINISHED` shows as done. The scene only reads that internal event. Closing the tab aborts the stream. Nothing is left polling.
+While the tab is open, the app follows one Cursor cloud agent: `ACTIVE` or `RUNNING` shows as working, and `FINISHED` shows as done. The scene only reads that internal event. Closing the tab aborts the stream. Nothing is left polling. Cloud events keep `machineId` null.
+
+## Local wing
+
+A local Cursor or Claude Code agent uses that same event, with `origin` `local` and a `machineId` this app creates in `~/.escritorio-de-ia/machine-id`. The owner is the person who started the session: the OS user, or the name or email the hook includes. The avatar sits in a separate wing, with a local badge, and is not the cloud desk. OpenAI is not observed locally.
+
+The bridge is the open page. While the page is open it installs user-level hooks and removes only those hooks after the last page closes:
+
+- Cursor reads `sessionStart`, `postToolUse`, `stop`, and `sessionEnd` from `~/.cursor/hooks.json`.
+- Claude Code reads `SessionStart`, `PreToolUse`, `Stop`, and `SessionEnd` from `~/.claude/settings.json`.
+
+Each hook appends a status line and exits. It does not record tool arguments or secrets. Other hooks in those files stay. If a file is not valid JSON, it is left untouched and that provider stays idle.
+
+Closing the page, or losing the spool, stops the working animation. The bridge starts at the end of the spool, so older lines are not shown as work in progress. There is no always-on process and no cloud fleet API.
 
 ## Checks
 
