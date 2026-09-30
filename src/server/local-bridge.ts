@@ -78,6 +78,8 @@ export type LocalBridge = {
   accept: LocalHookAccept;
   beat: () => void;
   release: () => void;
+  /** Claude Code is not logged in. Remove its hooks so a session cannot look working. */
+  releaseClaudeHooks: () => void;
 };
 
 function bridgeState(): BridgeState {
@@ -192,6 +194,7 @@ function claudeCommands(): Record<ClaudeLocalHook, string> {
   return {
     SessionStart: hookCommand("anthropic", "SessionStart"),
     PreToolUse: hookCommand("anthropic", "PreToolUse"),
+    PermissionRequest: hookCommand("anthropic", "PermissionRequest"),
     Stop: hookCommand("anthropic", "Stop"),
     SessionEnd: hookCommand("anthropic", "SessionEnd"),
   };
@@ -253,6 +256,12 @@ function ensureWatchdog(state: BridgeState) {
   state.watchdog = timer;
 }
 
+function releaseClaude(state: BridgeState) {
+  if (state.claudeInstalled) uninstall(CLAUDE_SETTINGS_FILE, stripClaudeSettings);
+  state.claudeInstalled = false;
+  state.accept = { ...state.accept, anthropic: false };
+}
+
 function deactivate(state: BridgeState) {
   if (state.cursorInstalled) uninstall(CURSOR_HOOKS_FILE, stripCursorHooks);
   if (state.claudeInstalled) uninstall(CLAUDE_SETTINGS_FILE, stripClaudeSettings);
@@ -281,13 +290,18 @@ export function retainLocalBridge(): LocalBridge {
       if (!state.machineId) state.machineId = "offline";
     }
   }
+  const accept = { ...state.accept };
   return {
     machineId: state.machineId,
     owner: state.owner,
     spoolPath: SPOOL_FILE,
-    accept: { ...state.accept },
+    accept,
     beat() {
       state.lastBeat = Date.now();
+    },
+    releaseClaudeHooks() {
+      releaseClaude(state);
+      accept.anthropic = false;
     },
     release() {
       state.count = Math.max(0, state.count - 1);

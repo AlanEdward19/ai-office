@@ -5,7 +5,13 @@ import type { ProviderId } from "./providers";
 export const HOOK_MARK = "escritorio-de-ia-hook";
 
 export const CURSOR_LOCAL_HOOKS = ["sessionStart", "postToolUse", "stop", "sessionEnd"] as const;
-export const CLAUDE_LOCAL_HOOKS = ["SessionStart", "PreToolUse", "Stop", "SessionEnd"] as const;
+export const CLAUDE_LOCAL_HOOKS = [
+  "SessionStart",
+  "PreToolUse",
+  "PermissionRequest",
+  "Stop",
+  "SessionEnd",
+] as const;
 
 export type CursorLocalHook = (typeof CURSOR_LOCAL_HOOKS)[number];
 export type ClaudeLocalHook = (typeof CLAUDE_LOCAL_HOOKS)[number];
@@ -13,6 +19,7 @@ export type LocalHookProvider = "cursor" | "anthropic";
 
 const SESSION_START = new Set(["sessionStart", "SessionStart"]);
 const TOOL_USE = new Set(["postToolUse", "PreToolUse", "PostToolUse"]);
+const BLOCKED = new Set(["PermissionRequest"]);
 const STOP = new Set(["stop", "Stop"]);
 const SESSION_END = new Set(["sessionEnd", "SessionEnd"]);
 
@@ -56,6 +63,7 @@ function hookStatus(body: unknown): string | null {
 /** Maps an official Cursor or Claude Code hook onto the shared agent status. */
 export function statusFromLocalHook(hook: string, body: unknown): AgentStatus | null {
   const name = hook.trim();
+  if (BLOCKED.has(name)) return "blocked";
   if (SESSION_START.has(name) || TOOL_USE.has(name)) return "working";
   if (STOP.has(name)) {
     const status = hookStatus(body);
@@ -221,7 +229,7 @@ export function stripCursorHooks(existing: string | null): HookConfigResult {
 }
 
 function matcherFor(name: ClaudeLocalHook): string {
-  return name === "PreToolUse" ? "*" : "";
+  return name === "PreToolUse" || name === "PermissionRequest" ? "*" : "";
 }
 
 function stripClaudeGroups(

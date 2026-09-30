@@ -16,6 +16,7 @@ import {
   stripCursorHooks,
   takeHookLines,
 } from "./local-hooks";
+import { parseClaudeAgentsOutput, statusFromClaudeAgentList } from "./claude-session";
 import { observeLocalMachine } from "./observe-local";
 import { bindAgents, bindLocalWing, deskSlot, localWingSlot } from "./placement";
 
@@ -34,6 +35,7 @@ function claudeCommands(): Record<(typeof CLAUDE_LOCAL_HOOKS)[number], string> {
   return {
     SessionStart: `node '/home/ada/.escritorio-de-ia/${HOOK_MARK}.mjs' anthropic SessionStart '/tmp/spool.jsonl'`,
     PreToolUse: `node '/home/ada/.escritorio-de-ia/${HOOK_MARK}.mjs' anthropic PreToolUse '/tmp/spool.jsonl'`,
+    PermissionRequest: `node '/home/ada/.escritorio-de-ia/${HOOK_MARK}.mjs' anthropic PermissionRequest '/tmp/spool.jsonl'`,
     Stop: `node '/home/ada/.escritorio-de-ia/${HOOK_MARK}.mjs' anthropic Stop '/tmp/spool.jsonl'`,
     SessionEnd: `node '/home/ada/.escritorio-de-ia/${HOOK_MARK}.mjs' anthropic SessionEnd '/tmp/spool.jsonl'`,
   };
@@ -45,6 +47,10 @@ test("cursor and claude hooks map onto the shared status", () => {
   assert.equal(statusFromLocalHook("postToolUse", { tool_name: "Shell" }), "working");
   assert.equal(statusFromLocalHook("PreToolUse", {}), "working");
   assert.equal(statusFromLocalHook("PostToolUse", {}), "working");
+  assert.equal(
+    statusFromLocalHook("PermissionRequest", { tool_name: "Bash", tool_input: { command: "secret" } }),
+    "blocked",
+  );
   assert.equal(statusFromLocalHook("stop", { status: "completed" }), "done");
   assert.equal(statusFromLocalHook("stop", {}), "done");
   assert.equal(statusFromLocalHook("Stop", { status: "aborted" }), "idle");
@@ -218,6 +224,64 @@ test("hook config keeps user commands and drops only our mark", () => {
   assert.equal(strippedClaude.config.model, "claude");
   assert.equal(JSON.stringify(strippedClaude.config).includes(HOOK_MARK), false);
   assert.equal(mergeClaudeSettings("not-json", claudeCommands()).ok, false);
+});
+
+test("claude session status is idle, working, or blocked and drops paths", () => {
+  assert.deepEqual(statusFromClaudeAgentList([]), { ok: true, status: "idle", live: false });
+  assert.deepEqual(statusFromClaudeAgentList([{ status: "idle", cwd: "/home/ada/secret" }]), {
+    ok: true,
+    status: "idle",
+    live: true,
+  });
+  assert.deepEqual(statusFromClaudeAgentList([{ status: "busy" }, { status: "idle" }]), {
+    ok: true,
+    status: "working",
+    live: true,
+  });
+  assert.deepEqual(statusFromClaudeAgentList([{ status: "shell" }]), {
+    ok: true,
+    status: "working",
+    live: true,
+  });
+  assert.deepEqual(statusFromClaudeAgentList([{ state: "working" }]), {
+    ok: true,
+    status: "working",
+    live: true,
+  });
+  assert.deepEqual(
+    statusFromClaudeAgentList([
+      { status: "busy", cwd: "/tmp/secret" },
+      { status: "waiting", waitingFor: "permission prompt", name: "do-not-keep" },
+    ]),
+    { ok: true, status: "blocked", live: true },
+  );
+  assert.deepEqual(statusFromClaudeAgentList([{ state: "blocked" }]), {
+    ok: true,
+    status: "blocked",
+    live: true,
+  });
+  assert.deepEqual(statusFromClaudeAgentList([{ state: "done" }]), {
+    ok: true,
+    status: "idle",
+    live: true,
+  });
+  assert.deepEqual(statusFromClaudeAgentList({ loggedIn: true }), { ok: false });
+
+  const parsed = parseClaudeAgentsOutput(
+    `banner\n${JSON.stringify([{ status: "waiting", cwd: "/secret/repo", waitingFor: "input needed" }])}\n`,
+  );
+  const listed = statusFromClaudeAgentList(parsed);
+  assert.equal(listed.ok && listed.status, "blocked");
+  const event = localAgentEvent({
+    provider: "anthropic",
+    owner: "ada",
+    machineId: "machine-1",
+    status: listed.ok ? listed.status : "idle",
+    observedAt,
+  });
+  assert.equal(JSON.stringify(event).includes("secret"), false);
+  assert.equal(JSON.stringify(event).includes("input needed"), false);
+  assert.equal(parseClaudeAgentsOutput("not-json"), null);
 });
 
 test("a partial spool line waits, and a lost machine does not emit working", async () => {

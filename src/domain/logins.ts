@@ -69,6 +69,19 @@ export function claudeCredentialsPath(homeDir: string, claudeConfigDir?: string)
   return `${dir}/.credentials.json`;
 }
 
+/**
+ * `claude` on PATH, then the native installer locations. A GUI-started dev
+ * server often lacks ~/.local/bin, which would hide a real Claude login.
+ */
+export function claudeExecutableCandidates(homeDir: string): string[] {
+  return [
+    "claude",
+    `${homeDir}/.local/bin/claude`,
+    `${homeDir}/.claude/local/claude`,
+    "/usr/local/bin/claude",
+  ];
+}
+
 export function codexAuthPath(homeDir: string, codexHome?: string): string {
   const dir = codexHome?.trim() || `${homeDir}/.codex`;
   return `${dir}/auth.json`;

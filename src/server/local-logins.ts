@@ -8,6 +8,7 @@ import {
   authenticatedProviderIds,
   claudeCredentialsIndicateLogin,
   claudeCredentialsPath,
+  claudeExecutableCandidates,
   codexAuthIndicatesLogin,
   codexAuthPath,
   cursorAuthIndicatesLogin,
@@ -82,33 +83,55 @@ function cursorCliLoggedIn(homeDir: string): boolean {
   );
 }
 
+export type LocalLogins = {
+  providers: ProviderId[];
+  /** Binary that answered `claude auth status`, when one exists. */
+  claudeBin: string | null;
+};
+
+async function claudeAuthStatus(homeDir: string): Promise<{ bin: string | null; code: number | null }> {
+  for (const bin of claudeExecutableCandidates(homeDir)) {
+    if (bin !== "claude" && !fs.existsSync(bin)) continue;
+    const code = await commandStatus(bin, ["auth", "status"]);
+    if (code === 0 || code === 1) return { bin, code };
+  }
+  return { bin: null, code: null };
+}
+
 /**
  * Detects which hiring companies already have a login on this machine.
  * File contents and command output never leave this process.
  */
-export async function detectAuthenticatedProviders(): Promise<ProviderId[]> {
+export async function detectLocalLogins(): Promise<LocalLogins> {
   const homeDir = os.homedir();
-  const [claudeStatus, codexStatus, ideSession] = await Promise.all([
-    commandStatus("claude", ["auth", "status"]),
+  const [claude, codexStatus, ideSession] = await Promise.all([
+    claudeAuthStatus(homeDir),
     commandStatus("codex", ["login", "status"]),
     cursorIdeHasSession(homeDir),
   ]);
 
-  return authenticatedProviderIds({
-    cursor:
-      Boolean(process.env.CURSOR_API_KEY?.trim()) ||
-      cursorCliLoggedIn(homeDir) ||
-      ideSession,
-    anthropic:
-      Boolean(process.env.ANTHROPIC_API_KEY?.trim()) ||
-      Boolean(process.env.ANTHROPIC_AUTH_TOKEN?.trim()) ||
-      claudeCredentialsIndicateLogin(
-        readJson(claudeCredentialsPath(homeDir, process.env.CLAUDE_CONFIG_DIR)),
-      ) ||
-      claudeStatus === 0,
-    openai:
-      Boolean(process.env.OPENAI_API_KEY?.trim()) ||
-      codexAuthIndicatesLogin(readJson(codexAuthPath(homeDir, process.env.CODEX_HOME))) ||
-      codexStatus === 0,
-  });
+  return {
+    claudeBin: claude.bin,
+    providers: authenticatedProviderIds({
+      cursor:
+        Boolean(process.env.CURSOR_API_KEY?.trim()) ||
+        cursorCliLoggedIn(homeDir) ||
+        ideSession,
+      anthropic:
+        Boolean(process.env.ANTHROPIC_API_KEY?.trim()) ||
+        Boolean(process.env.ANTHROPIC_AUTH_TOKEN?.trim()) ||
+        claudeCredentialsIndicateLogin(
+          readJson(claudeCredentialsPath(homeDir, process.env.CLAUDE_CONFIG_DIR)),
+        ) ||
+        claude.code === 0,
+      openai:
+        Boolean(process.env.OPENAI_API_KEY?.trim()) ||
+        codexAuthIndicatesLogin(readJson(codexAuthPath(homeDir, process.env.CODEX_HOME))) ||
+        codexStatus === 0,
+    }),
+  };
+}
+
+export async function detectAuthenticatedProviders(): Promise<ProviderId[]> {
+  return (await detectLocalLogins()).providers;
 }

@@ -13,6 +13,7 @@ import { parseJobForm } from "./job-form";
 import {
   authenticatedProviderIds,
   claudeCredentialsIndicateLogin,
+  claudeExecutableCandidates,
   codexAuthIndicatesLogin,
   cursorAuthIndicatesLogin,
 } from "./logins";
@@ -113,6 +114,12 @@ test("company list is the authenticated subset and never includes anyone else", 
   assert.equal(cursorAuthIndicatesLogin({ accessToken: "  " }), false);
   assert.equal(claudeCredentialsIndicateLogin({ claudeAiOauth: { accessToken: "x" } }), true);
   assert.equal(claudeCredentialsIndicateLogin({}), false);
+  assert.deepEqual(claudeExecutableCandidates("/home/ada"), [
+    "claude",
+    "/home/ada/.local/bin/claude",
+    "/home/ada/.claude/local/claude",
+    "/usr/local/bin/claude",
+  ]);
   assert.equal(codexAuthIndicatesLogin({ tokens: { access_token: "x" } }), true);
   assert.equal(codexAuthIndicatesLogin({ auth_mode: "chatgpt" }), false);
 });

@@ -30,7 +30,7 @@ The lobby, reception, and CEO corner render without either key. They stay on the
 The ficha de vaga asks for a role and a company. The company list is whoever already has a login on this machine. A provider that is not authenticated is omitted. Grok is not offered.
 
 - **Cursor** — `CURSOR_API_KEY`, a Cursor CLI login at `~/.config/cursor/auth.json`, or a Cursor IDE session.
-- **Anthropic (Claude)** — `claude auth status`, `~/.claude/.credentials.json` (or `CLAUDE_CONFIG_DIR`), or `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`.
+- **Anthropic (Claude)** — `claude auth status` (`claude` on `PATH`, or the native binary at `~/.local/bin/claude`), `~/.claude/.credentials.json` (or `CLAUDE_CONFIG_DIR`), or `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`.
 - **OpenAI (Codex)** — `codex login status`, `~/.codex/auth.json` (or `CODEX_HOME`), or `OPENAI_API_KEY`.
 
 Those checks stay on the server. The page receives company names, not session secrets. Saving the form seats an agent at a desk, and that desk keeps the same form.
@@ -64,7 +64,7 @@ A local Cursor, Claude Code, or Codex agent uses that same event, with `origin` 
 The bridge is the open page. While the page is open it installs user-level hooks and removes only those hooks after the last page closes:
 
 - Cursor reads `sessionStart`, `postToolUse`, `stop`, and `sessionEnd` from `~/.cursor/hooks.json`.
-- Claude Code reads `SessionStart`, `PreToolUse`, `Stop`, and `SessionEnd` from `~/.claude/settings.json`.
+- Claude Code reads `SessionStart`, `PreToolUse`, `PermissionRequest`, `Stop`, and `SessionEnd` from `~/.claude/settings.json`. `PermissionRequest` is blocked. While the page is open and Claude Code is already logged in, the same seat also follows `claude agents --json`: `busy` or `shell` is working, `waiting` or a background `blocked` state is blocked, and `idle` or no live session is idle. Paths, session names, and prompts from that list are not kept. If Claude Code is not logged in, those hooks are removed and the seat is not shown working.
 
 Each hook appends a status line and exits. It does not record tool arguments or secrets. Other hooks in those files stay. If a file is not valid JSON, it is left untouched and that provider stays idle.
 

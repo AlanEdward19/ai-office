@@ -1,7 +1,9 @@
+import type { ProviderId } from "@/domain/providers";
 import { observeLocalMachine } from "@/domain/observe-local";
+import { followClaudeSessions } from "@/server/claude-follow";
 import { followCodexAppServer } from "@/server/codex-follow";
 import { fileSpool, retainLocalBridge } from "@/server/local-bridge";
-import { detectAuthenticatedProviders } from "@/server/local-logins";
+import { detectLocalLogins } from "@/server/local-logins";
 import { abortableSleep } from "../observe/route";
 
 export const dynamic = "force-dynamic";
@@ -45,31 +47,45 @@ export function GET(request: Request) {
 
       write(`:${" ".repeat(2048)}\n\n`);
       bridge.beat();
-      void detectAuthenticatedProviders()
-        .then((providers) =>
-          followCodexAppServer({
+      void detectLocalLogins()
+        .catch((): { providers: ProviderId[]; claudeBin: string | null } => ({
+          providers: [],
+          claudeBin: null,
+        }))
+        .then((logins) => {
+          if (abort.signal.aborted) return;
+          const claudeLoggedIn = logins.providers.includes("anthropic");
+          if (!claudeLoggedIn) bridge.releaseClaudeHooks();
+          void followCodexAppServer({
             signal: abort.signal,
-            loggedIn: providers.includes("openai"),
+            loggedIn: logins.providers.includes("openai"),
             machineId: bridge.machineId,
             owner: bridge.owner,
             emit: (event) => write(sse("agent", event)),
-          }),
-        )
-        .catch(() => undefined);
-      void observeLocalMachine({
-        machineId: bridge.machineId,
-        owner: bridge.owner,
-        signal: abort.signal,
-        spool: fileSpool(bridge.spoolPath),
-        accept: bridge.accept,
-        emit: (event) => write(sse("agent", event)),
-        presence: (presence) => write(sse("presence", presence)),
-        notify: (notice) => write(sse("notice", notice)),
-        sleep: (ms, signal) => {
-          bridge.beat();
-          return abortableSleep(ms, signal);
-        },
-      })
+          });
+          void followClaudeSessions({
+            signal: abort.signal,
+            loggedIn: claudeLoggedIn,
+            claudeBin: logins.claudeBin,
+            machineId: bridge.machineId,
+            owner: bridge.owner,
+            emit: (event) => write(sse("agent", event)),
+          });
+          return observeLocalMachine({
+            machineId: bridge.machineId,
+            owner: bridge.owner,
+            signal: abort.signal,
+            spool: fileSpool(bridge.spoolPath),
+            accept: { ...bridge.accept, anthropic: claudeLoggedIn && bridge.accept.anthropic },
+            emit: (event) => write(sse("agent", event)),
+            presence: (presence) => write(sse("presence", presence)),
+            notify: (notice) => write(sse("notice", notice)),
+            sleep: (ms, signal) => {
+              bridge.beat();
+              return abortableSleep(ms, signal);
+            },
+          });
+        })
         .catch(() => {
           if (abort.signal.aborted) return;
           write(sse("notice", { message: "A ala local parou com um erro." }));

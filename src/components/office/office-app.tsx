@@ -252,7 +252,18 @@ export function OfficeApp() {
       if (!isAgentEvent(parsed) || parsed.origin !== "local") return;
       const provider = parsed.provider;
       if (provider !== "cursor" && provider !== "anthropic" && provider !== "openai") return;
-      setLocalEvents((current) => ({ ...current, [provider]: parsed }));
+      setLocalEvents((current) => {
+        const prev = current[provider];
+        if (
+          prev &&
+          prev.status === parsed.status &&
+          prev.owner === parsed.owner &&
+          prev.machineId === parsed.machineId
+        ) {
+          return current;
+        }
+        return { ...current, [provider]: parsed };
+      });
     };
     const onPresence = (event: Event) => {
       const parsed = parsePayload((event as MessageEvent).data);
