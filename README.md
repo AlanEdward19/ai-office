@@ -19,7 +19,7 @@ Put real keys in `.env.local` only. That file is gitignored. Do not commit keys.
 | Variable | Required for | Notes |
 | --- | --- | --- |
 | `LINEAR_API_KEY` | One room per Linear project | Personal API key. The app sends it in the `Authorization` header with no `Bearer` prefix. |
-| `CURSOR_API_KEY` | Cloud agent status while the page is open | User API key from the Cursor dashboard. Used to list cloud agents and read a run stream. |
+| `CURSOR_API_KEY` | Cloud agent status, and starting one when a card is dropped on a Cursor desk | User API key from the Cursor dashboard. Used to list cloud agents, read a run stream, and `POST /v1/agents` while the page is open. |
 
 The lobby, reception, and CEO corner render without either key. Rooms appear after `LINEAR_API_KEY` is set and you reload. A new Linear project shows up as another room on refresh. The room identity is the project id. The name is only the label on the door.
 
@@ -32,6 +32,18 @@ The ficha de vaga asks for a role and a company. The company list is whoever alr
 - **OpenAI (Codex)** — `codex login status`, `~/.codex/auth.json` (or `CODEX_HOME`), or `OPENAI_API_KEY`.
 
 Those checks stay on the server. The page receives company names, not session secrets. Saving the form seats an agent at a desk, and that desk keeps the same form.
+
+## Board and desk
+
+Open a room to read that Linear project's issues. The request runs while the page is open and stops when you leave. The board never lists another project's issues.
+
+Writing a card creates a Linear issue in that room's project. The same issue opens in Linear.
+
+Drop the card on a desk that already has a ficha de vaga. The company on that form has to be logged in on this machine. A desk without a form does not take a card.
+
+Cursor is the only company that can start work: the drop calls the Cursor cloud agents API and the existing observer moves that desk's avatar to working, then to done when the run finishes. Anthropic and OpenAI stay on the form, but the drop is refused until a dispatch for that company exists. Nothing is sent to those APIs.
+
+The Linear issue keeps the link to that cloud agent. Closing the page stops the observer. No process keeps running.
 
 ## Cloud agent status
 

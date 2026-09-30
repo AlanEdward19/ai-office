@@ -35,27 +35,34 @@ export function hireEvent(
 }
 
 /**
- * Desks keep the ficha. The Cursor cloud observation updates the earliest
- * Cursor desk. With no Cursor hire, that same event stands in the lobby.
+ * Desks keep the ficha. The Cursor cloud observation updates the desk that
+ * received a dispatch, or the earliest Cursor desk when none has. With no
+ * Cursor hire, that same event stands in the lobby.
  */
 export function bindAgents(input: {
   desks: readonly DeskRecord[];
   observed: AgentEvent | null;
   owner: string;
+  preferredDeskId?: string | null;
 }): PlacedAgent[] {
   const desks = [...input.desks].sort((a, b) => {
     const byTime = a.createdAt.localeCompare(b.createdAt);
     return byTime === 0 ? a.id.localeCompare(b.id) : byTime;
   });
+  const preferred = input.preferredDeskId
+    ? desks.find(
+        (desk) => desk.id === input.preferredDeskId && desk.form.provider === "cursor",
+      )?.id
+    : null;
   let bound = false;
   const placed: PlacedAgent[] = desks.map((desk, index) => {
     const slot = deskSlot(index);
-    const takeObserved =
-      !bound &&
+    const eligible =
       input.observed !== null &&
       input.observed.provider === "cursor" &&
       input.observed.origin === "cloud" &&
       desk.form.provider === "cursor";
+    const takeObserved = !bound && eligible && (preferred ? desk.id === preferred : true);
     if (takeObserved) bound = true;
     return {
       id: desk.id,

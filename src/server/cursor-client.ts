@@ -1,5 +1,10 @@
 import "server-only";
 
+import {
+  cursorCreateBody,
+  readCreatedCursorAgent,
+  type CreatedCursorAgent,
+} from "@/domain/dispatch";
 import { readAgentList, readRunStatus } from "@/domain/cursor-status";
 import { ObserveHttpError, type CursorCloudClient } from "@/domain/observe-cursor";
 import { takeSseBlocks, type SseMessage } from "@/domain/sse";
@@ -17,6 +22,28 @@ async function cursorFetch(apiKey: string, path: string, signal: AbortSignal, ac
   });
   if (!response.ok) throw new ObserveHttpError(response.status);
   return response;
+}
+
+export async function createCursorCloudAgent(
+  apiKey: string,
+  issue: { identifier: string; title: string; url: string; description: string | null },
+  signal?: AbortSignal,
+): Promise<CreatedCursorAgent> {
+  const response = await fetch(`${BASE}/v1/agents`, {
+    method: "POST",
+    signal,
+    cache: "no-store",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(cursorCreateBody(issue)),
+  });
+  if (!response.ok) throw new ObserveHttpError(response.status);
+  const agent = readCreatedCursorAgent(await response.json());
+  if (!agent) throw new ObserveHttpError(502);
+  return agent;
 }
 
 export function createCursorClient(apiKey: string): CursorCloudClient {

@@ -30,12 +30,18 @@ export function OfficeScene({
   agents,
   selectedId,
   onSelectAgent,
+  openRoomId,
+  onSelectRoom,
+  dropArmed,
   resetSignal,
 }: {
   rooms: PlacedRoom[];
   agents: PlacedAgent[];
   selectedId: string | null;
   onSelectAgent: (id: string) => void;
+  openRoomId: string | null;
+  onSelectRoom: (id: string) => void;
+  dropArmed: boolean;
   resetSignal: number;
 }) {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
@@ -80,13 +86,19 @@ export function OfficeScene({
       <Reception />
       <CeoCorner />
       {rooms.map((room) => (
-        <ProjectRoom key={room.id} room={room} />
+        <ProjectRoom
+          key={room.id}
+          room={room}
+          open={room.id === openRoomId}
+          onOpen={() => onSelectRoom(room.id)}
+        />
       ))}
       {agents.map((agent) => (
         <DeskAgent
           key={agent.id}
           agent={agent}
           selected={agent.id === selectedId}
+          dropArmed={dropArmed}
           onSelect={() => onSelectAgent(agent.id)}
         />
       ))}
@@ -189,12 +201,27 @@ function CeoCorner() {
   );
 }
 
-function ProjectRoom({ room }: { room: PlacedRoom }) {
+function ProjectRoom({
+  room,
+  open,
+  onOpen,
+}: {
+  room: PlacedRoom;
+  open: boolean;
+  onOpen: () => void;
+}) {
   const width = 4.05;
   const depth = 4.4;
   return (
     <group position={[room.x, 0, room.z]}>
-      <mesh position={[0, 0.02, 0]} receiveShadow>
+      <mesh
+        position={[0, 0.02, 0]}
+        receiveShadow
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpen();
+        }}
+      >
         <boxGeometry args={[width, 0.06, depth]} />
         <meshStandardMaterial color={roomColor(room.id)} roughness={0.88} />
       </mesh>
@@ -207,7 +234,18 @@ function ProjectRoom({ room }: { room: PlacedRoom }) {
         <boxGeometry args={[1.15, 0.7, 0.62]} />
         <meshStandardMaterial color="#f7f1e8" />
       </mesh>
-      <PlaceLabel title={room.name} y={1.85} />
+      <mesh
+        position={[0, 0.95, -depth / 2 + 0.1]}
+        castShadow
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpen();
+        }}
+      >
+        <boxGeometry args={[2.35, 1.2, 0.08]} />
+        <meshStandardMaterial color={open ? "#f3d48a" : "#f7f1e8"} roughness={0.55} />
+      </mesh>
+      <PlaceLabel title={room.name} y={2.15} />
     </group>
   );
 }
@@ -215,10 +253,12 @@ function ProjectRoom({ room }: { room: PlacedRoom }) {
 function DeskAgent({
   agent,
   selected,
+  dropArmed,
   onSelect,
 }: {
   agent: PlacedAgent;
   selected: boolean;
+  dropArmed: boolean;
   onSelect: () => void;
 }) {
   const company = agent.form
@@ -260,6 +300,14 @@ function DeskAgent({
         <mesh position={[0, 0.03, 0.1]} rotation={[-Math.PI / 2, 0, 0]}>
           <ringGeometry args={[0.85, 0.96, 40]} />
           <meshStandardMaterial color="#d4b483" />
+        </mesh>
+      ) : null}
+      {dropArmed ? (
+        <mesh position={[0, 0.05, 0.15]} rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[0.95, 1.08, 40]} />
+          <meshStandardMaterial
+            color={agent.form ? (agent.form.provider === "cursor" ? "#1f7a4d" : "#b7791f") : "#b42318"}
+          />
         </mesh>
       ) : null}
       <ProjectedLabel
