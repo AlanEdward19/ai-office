@@ -5,7 +5,7 @@ import { OrthographicCamera } from "three";
 
 import type { PlacedAgent } from "@/domain/placement";
 import type { PlacedRoom } from "@/domain/rooms";
-import { OfficeScene } from "./office-scene";
+import { isoZoom, OfficeScene } from "./office-scene";
 
 export default function OfficeCanvas({
   rooms,
@@ -23,17 +23,13 @@ export default function OfficeCanvas({
   return (
     <Canvas
       orthographic
-      shadows
+      shadows="basic"
       dpr={[1, 1.75]}
       camera={{ position: [20, 22, 20], zoom: 46, near: -80, far: 220 }}
       gl={{ antialias: true }}
       onCreated={({ camera }) => {
         if (!(camera instanceof OrthographicCamera)) return;
-        const zoom = Math.max(
-          28,
-          Math.min(window.innerWidth, window.innerHeight) / 16,
-        );
-        camera.zoom = zoom;
+        camera.zoom = isoZoom(window.innerWidth, window.innerHeight);
         camera.lookAt(0, 0, -1);
         camera.updateProjectionMatrix();
       }}

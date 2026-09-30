@@ -1,9 +1,9 @@
 "use client";
 
-import { Html, OrbitControls } from "@react-three/drei";
-import { useFrame } from "@react-three/fiber";
+import { OrbitControls } from "@react-three/drei";
+import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useRef, type ComponentRef } from "react";
-import { OrthographicCamera, type Group } from "three";
+import { OrthographicCamera, Vector3, type Group } from "three";
 
 import { STATUS_LABELS, type AgentStatus } from "@/domain/agent-event";
 import { PROVIDER_LABELS } from "@/domain/providers";
@@ -18,6 +18,12 @@ const STATUS_COLOR: Record<AgentStatus, string> = {
 };
 
 const POLAR = Math.atan2(Math.hypot(20, 20), 22);
+
+export function isoZoom(width: number, height: number) {
+  const shortest = Math.min(width, height);
+  if (shortest < 720) return Math.max(16, shortest / 22);
+  return Math.max(32, shortest / 18);
+}
 
 export function OfficeScene({
   rooms,
@@ -34,17 +40,20 @@ export function OfficeScene({
 }) {
   const controls = useRef<ComponentRef<typeof OrbitControls>>(null);
   useEffect(() => {
-    if (resetSignal === 0) return;
-    const orbit = controls.current;
-    const camera = orbit?.object;
-    if (camera instanceof OrthographicCamera) {
+    const fit = () => {
+      const orbit = controls.current;
+      const camera = orbit?.object;
+      if (!(camera instanceof OrthographicCamera)) return;
       camera.position.set(20, 22, 20);
-      camera.zoom = Math.max(28, Math.min(window.innerWidth, window.innerHeight) / 16);
+      camera.zoom = isoZoom(window.innerWidth, window.innerHeight);
       camera.lookAt(0, 0, -1);
       camera.updateProjectionMatrix();
-    }
-    orbit?.target.set(0, 0, -1);
-    orbit?.update();
+      orbit?.target.set(0, 0, -1);
+      orbit?.update();
+    };
+    if (resetSignal > 0) fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
   }, [resetSignal]);
 
   return (
@@ -244,21 +253,14 @@ function DeskAgent({
           <meshStandardMaterial color="#d4b483" />
         </mesh>
       ) : null}
-      <Html position={[0, 1.85, 0]} center distanceFactor={11} zIndexRange={[20, 0]}>
-        <div className="pointer-events-none w-36 rounded-xl border border-[#e4d5c4] bg-[#fffaf4]/95 px-2.5 py-1.5 text-center shadow-lg">
-          <p className="text-[10px] tracking-[0.14em] text-[#8c7b6b] uppercase">
-            {company}
-          </p>
-          {role ? (
-            <p className="truncate text-xs font-medium text-[#241c16]">{role}</p>
-          ) : (
-            <p className="text-xs text-[#241c16]">Nuvem</p>
-          )}
-          <p className="text-[10px] text-[#8c7b6b]">
-            {STATUS_LABELS[agent.event.status]}
-          </p>
-        </div>
-      </Html>
+      <ProjectedLabel
+        position={[0, 1.85, 0]}
+        lines={[
+          { text: company, kind: "kicker" },
+          { text: role ?? "Nuvem", kind: "title" },
+          { text: STATUS_LABELS[agent.event.status], kind: "meta" },
+        ]}
+      />
     </group>
   );
 }
@@ -329,6 +331,8 @@ function Wall({
   );
 }
 
+const projected = new Vector3();
+
 function PlaceLabel({
   title,
   y,
@@ -339,16 +343,103 @@ function PlaceLabel({
   brass?: boolean;
 }) {
   return (
-    <Html position={[0, y, 0]} center distanceFactor={12} zIndexRange={[10, 0]}>
-      <div
-        className={
-          brass
-            ? "pointer-events-none rounded-full bg-[#1e3d34] px-3 py-1 text-[11px] font-semibold tracking-[0.18em] text-[#f3e0b8] uppercase shadow-md"
-            : "pointer-events-none max-w-40 truncate rounded-full bg-[#fffaf4]/95 px-3 py-1 text-[11px] font-medium text-[#241c16] shadow-md"
-        }
-      >
-        {title}
-      </div>
-    </Html>
+    <ProjectedLabel
+      position={[0, y, 0]}
+      lines={[{ text: title, kind: brass ? "brass" : "pill" }]}
+    />
   );
+}
+
+function ProjectedLabel({
+  position,
+  lines,
+}: {
+  position: [number, number, number];
+  lines: { text: string; kind: "kicker" | "title" | "meta" | "pill" | "brass" }[];
+}) {
+  const anchor = useRef<Group>(null);
+  const card = useRef<HTMLDivElement | null>(null);
+  const { camera, size, gl } = useThree();
+  const linesKey = lines.map((line) => `${line.kind}:${line.text}`).join("|");
+
+  useEffect(() => {
+    const parent = gl.domElement.parentElement;
+    const content = lines;
+    if (!parent) return;
+    const node = document.createElement("div");
+    node.style.position = "absolute";
+    node.style.top = "0";
+    node.style.left = "0";
+    node.style.pointerEvents = "none";
+    if (content.length > 1) {
+      node.style.width = "9rem";
+      node.style.border = "1px solid #e4d5c4";
+      node.style.borderRadius = "12px";
+      node.style.background = "rgba(255, 250, 244, 0.95)";
+      node.style.padding = "6px 8px";
+      node.style.textAlign = "center";
+      node.style.boxShadow = "0 8px 20px rgba(36, 28, 22, 0.16)";
+    }
+    for (const line of content) {
+      const row = document.createElement("div");
+      row.textContent = line.text;
+      if (line.kind === "kicker" || line.kind === "meta") {
+        row.style.fontSize = "10px";
+        row.style.letterSpacing = "0.14em";
+        row.style.textTransform = "uppercase";
+        row.style.color = "#8c7b6b";
+      } else if (line.kind === "title") {
+        row.style.fontSize = "12px";
+        row.style.fontWeight = "600";
+        row.style.color = "#241c16";
+        row.style.overflow = "hidden";
+        row.style.textOverflow = "ellipsis";
+        row.style.whiteSpace = "nowrap";
+      } else if (line.kind === "brass") {
+        row.style.borderRadius = "999px";
+        row.style.background = "#1e3d34";
+        row.style.color = "#f3e0b8";
+        row.style.fontSize = "11px";
+        row.style.fontWeight = "700";
+        row.style.letterSpacing = "0.18em";
+        row.style.textTransform = "uppercase";
+        row.style.padding = "4px 12px";
+      } else {
+        row.style.maxWidth = "10rem";
+        row.style.overflow = "hidden";
+        row.style.textOverflow = "ellipsis";
+        row.style.whiteSpace = "nowrap";
+        row.style.borderRadius = "999px";
+        row.style.background = "rgba(255, 250, 244, 0.95)";
+        row.style.color = "#241c16";
+        row.style.fontSize = "11px";
+        row.style.fontWeight = "600";
+        row.style.padding = "4px 12px";
+        row.style.boxShadow = "0 6px 16px rgba(36, 28, 22, 0.12)";
+      }
+      node.appendChild(row);
+    }
+    parent.appendChild(node);
+    card.current = node;
+    return () => {
+      card.current = null;
+      node.remove();
+    };
+  }, [gl, lines, linesKey]);
+
+  useFrame(() => {
+    const node = card.current;
+    const anchorGroup = anchor.current;
+    if (!node || !anchorGroup) return;
+    anchorGroup.getWorldPosition(projected);
+    projected.project(camera);
+    const x = (projected.x * 0.5 + 0.5) * size.width;
+    const y = (-projected.y * 0.5 + 0.5) * size.height;
+    const visible =
+      projected.z < 1 && x > -80 && x < size.width + 80 && y > -40 && y < size.height + 40;
+    node.style.display = visible ? "block" : "none";
+    node.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
+  });
+
+  return <group ref={anchor} position={position} />;
 }

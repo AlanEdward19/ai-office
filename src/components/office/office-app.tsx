@@ -182,7 +182,7 @@ export function OfficeApp() {
             <h1 className="font-display text-3xl leading-none sm:text-4xl">
               Escritório de IA
             </h1>
-            <p className="mt-2 max-w-md text-sm leading-5 text-[#5c5148]">
+            <p className="mt-2 hidden max-w-md text-sm leading-5 text-[#5c5148] sm:block">
               A cena existe enquanto esta página está aberta. O canto do CEO não
               é um projeto.
             </p>
@@ -195,7 +195,7 @@ export function OfficeApp() {
           </div>
         </header>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex max-h-[42dvh] flex-col gap-2 overflow-auto sm:max-h-none sm:flex-row sm:items-end sm:justify-between sm:overflow-visible">
           <section className="pointer-events-auto max-w-md rounded-3xl bg-[#f7f1e8]/95 px-4 py-3 text-sm text-[#241c16] shadow-xl">
             <p className="text-[0.65rem] tracking-[0.16em] text-[#8c7b6b] uppercase">
               Salas
