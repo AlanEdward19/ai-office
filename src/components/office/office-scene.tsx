@@ -20,6 +20,13 @@ const STATUS_COLOR: Record<AgentStatus, string> = {
   done: "#1f7a4d",
 };
 
+function statusInk(text: string): string {
+  if (text.startsWith("falha:")) return "#b42318";
+  if (text === "running") return "#8a6404";
+  if (text === "terminated") return "#1f7a4d";
+  return "#5c5148";
+}
+
 function claudeSwatch(label: string | null | undefined): string | null {
   if (!label || !isClaudeCloudLabel(label)) return null;
   if (label === "running") return "#e0a106";
@@ -345,7 +352,7 @@ function DeskAgent({
     : [
         { text: company, kind: "kicker" as const },
         { text: role ?? "Nuvem", kind: "title" as const },
-        { text: statusText, kind: "meta" as const },
+        { text: statusText, kind: "status" as const },
       ];
   return (
     <group position={[agent.x, 0, agent.z]}>
@@ -500,7 +507,7 @@ function ProjectedLabel({
   lines,
 }: {
   position: [number, number, number];
-  lines: { text: string; kind: "kicker" | "title" | "meta" | "pill" | "brass" }[];
+  lines: { text: string; kind: "kicker" | "title" | "meta" | "status" | "pill" | "brass" }[];
 }) {
   const anchor = useRef<Group>(null);
   const card = useRef<HTMLDivElement | null>(null);
@@ -517,7 +524,7 @@ function ProjectedLabel({
     node.style.left = "0";
     node.style.pointerEvents = "none";
     if (content.length > 1) {
-      node.style.width = "9rem";
+      node.style.width = content.some((line) => line.kind === "status") ? "12rem" : "9rem";
       node.style.border = "1px solid #e4d5c4";
       node.style.borderRadius = "12px";
       node.style.background = "rgba(255, 250, 244, 0.95)";
@@ -533,6 +540,11 @@ function ProjectedLabel({
         row.style.letterSpacing = "0.14em";
         row.style.textTransform = "uppercase";
         row.style.color = "#8c7b6b";
+      } else if (line.kind === "status") {
+        row.style.fontSize = "11px";
+        row.style.lineHeight = "1.35";
+        row.style.overflowWrap = "anywhere";
+        row.style.color = statusInk(line.text);
       } else if (line.kind === "title") {
         row.style.fontSize = "12px";
         row.style.fontWeight = "600";
