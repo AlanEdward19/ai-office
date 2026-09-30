@@ -23,6 +23,8 @@ Put real keys in `.env.local` only. That file is gitignored. Do not commit keys.
 | `LINEAR_API_KEY` | Choosing a project for a new room, and that room's board | Personal API key. The app sends it in the `Authorization` header with no `Bearer` prefix. |
 | `CURSOR_API_KEY` | Cloud agent status, and starting one when a card is dropped on a Cursor desk | User API key from the Cursor dashboard. Used to list cloud agents, read a run stream, and `POST /v1/agents` while the page is open. |
 
+A hired Claude desk starts a cloud session with `claude --cloud` and the CLI's existing claude.ai login. That path does not add a variable. `LINEAR_API_KEY` and `CURSOR_API_KEY` stay the only keys.
+
 The lobby, reception, and CEO corner render without either key. They stay on the ground floor. A room appears when you bind it to a Linear project that does not already have one. The room identity is the project id. The name is only the label on the door. Reloading the project list updates that label. It does not open a room by itself.
 
 ## Companies on the job form
@@ -49,13 +51,15 @@ Writing a card creates a Linear issue in that room's project. The same issue ope
 
 Drop the card on a desk that already has a ficha de vaga. The company on that form has to be logged in on this machine. A desk without a form does not take a card.
 
-Cursor is the only company that can start work: the drop calls the Cursor cloud agents API and the existing observer moves that desk's avatar to working, then to done when the run finishes. Anthropic and OpenAI stay on the form, but the drop is refused until a dispatch for that company exists. Nothing is sent to those APIs.
+Cursor and a hired Claude desk can start work. A drop on a Cursor desk calls the Cursor cloud agents API, and the existing observer moves that desk's avatar to working, then to done when the run finishes. A drop on a Claude desk runs `claude --cloud` with the issue text. The CLI uses the claude.ai login it already has and opens a session at claude.ai/code. The board keeps that session link. The cloud avatar stays idle: the CLI prints the session when it is created and does not report later whether it is still working or finished. OpenAI stays on the form, but the drop is refused. Nothing is sent to the OpenAI API, and no Anthropic API key is read or stored.
 
-The Linear issue keeps the link to that cloud agent. Closing the page stops the observer. No process keeps running.
+The Linear issue keeps the link to the Cursor agent or the Claude cloud session. Closing the page stops the observer and aborts a Claude start that has not finished. No process keeps running.
 
 ## Cloud agent status
 
 While the tab is open, the app follows one Cursor cloud agent: `ACTIVE` or `RUNNING` shows as working, and `FINISHED` shows as done. The scene only reads that internal event. Closing the tab aborts the stream. Nothing is left polling. Cloud events keep `machineId` null.
+
+A Claude cloud session started from a desk is not part of that Cursor stream. The page shows the link the CLI printed. It does not invent working or done. There is no non-interactive Claude Code command that lists those cloud sessions. Anthropic's Managed Agents API can list and start sessions with `GET` and `POST https://api.anthropic.com/v1/sessions`, header `x-api-key` set to an `ANTHROPIC_API_KEY`, and beta header `managed-agents-2026-04-01`. That key is not configured. `LINEAR_API_KEY` and `CURSOR_API_KEY` stay the only keys.
 
 ## Local wing
 

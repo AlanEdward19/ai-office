@@ -149,7 +149,7 @@ test("a new card is created inside the room project", () => {
   assert.equal(detail?.description, "Texto");
 });
 
-test("a drop uses the ficha and only Cursor can be dispatched", () => {
+test("a drop uses the ficha and dispatches Cursor or a hired Claude", () => {
   const cursorDesk = { id: "desk-cursor", form: { role: "Pesquisador", provider: "cursor" as const } };
   const claudeDesk = { id: "desk-claude", form: { role: "Editor", provider: "anthropic" as const } };
   const codexDesk = { id: "desk-codex", form: { role: "Revisor", provider: "openai" as const } };
@@ -158,17 +158,22 @@ test("a drop uses the ficha and only Cursor can be dispatched", () => {
   const loggedOut = decideDrop({ desk: cursorDesk, loggedIn: [] });
   assert.equal(loggedOut.ok, false);
   if (!loggedOut.ok) assert.equal(loggedOut.reason, "provider_not_logged_in");
+  const claudeOut = decideDrop({ desk: claudeDesk, loggedIn: [] });
+  assert.equal(claudeOut.ok, false);
+  if (!claudeOut.ok) assert.equal(claudeOut.reason, "provider_not_logged_in");
   const claude = decideDrop({ desk: claudeDesk, loggedIn: ["anthropic"] });
-  assert.equal(claude.ok, false);
-  if (!claude.ok) {
-    assert.equal(claude.reason, "dispatch_not_available");
-    assert.match(refusalCopy(claude.reason, claude.provider), /Anthropic/);
-    assert.match(serverDispatchCopy("dispatch_not_available", "openai"), /OpenAI/);
-  }
+  assert.deepEqual(claude, { ok: true, deskId: "desk-claude", provider: "anthropic" });
   const codex = decideDrop({ desk: codexDesk, loggedIn: ["openai"] });
   assert.equal(codex.ok, false);
+  if (!codex.ok) {
+    assert.equal(codex.reason, "dispatch_not_available");
+    assert.match(refusalCopy(codex.reason, codex.provider), /OpenAI/);
+    assert.match(serverDispatchCopy("dispatch_not_available", "openai"), /OpenAI/);
+  }
   const cursor = decideDrop({ desk: cursorDesk, loggedIn: ["cursor"] });
   assert.deepEqual(cursor, { ok: true, deskId: "desk-cursor", provider: "cursor" });
+  assert.match(serverDispatchCopy("claude_cloud_auth", "anthropic"), /claude\.ai/);
+  assert.match(serverDispatchCopy("claude_cloud_rejected", "anthropic"), /não foi marcado como trabalhando/);
 });
 
 test("cursor dispatch names the linear issue and does not carry secrets", () => {
@@ -241,6 +246,8 @@ test("the dispatched cursor desk receives the working event", () => {
       provider: "cursor",
       cursorAgentId: "bc-1",
       cursorAgentUrl: "https://cursor.com/agents/bc-1",
+      claudeSessionId: null,
+      claudeSessionUrl: null,
       createdAt: "2026-09-30T12:00:00.000Z",
     },
     {
@@ -250,6 +257,8 @@ test("the dispatched cursor desk receives the working event", () => {
       provider: "grok" as never,
       cursorAgentId: null,
       cursorAgentUrl: null,
+      claudeSessionId: null,
+      claudeSessionUrl: null,
       createdAt: "2026-09-30T12:01:00.000Z",
     },
   ]);
