@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+:root {
+  --background: #241c16;
+  --foreground: #f6efe6;
+  --card: #f7f1e8;
+  --card-foreground: #241c16;
+  --muted: #8c7b6b;
+  --border: #e4d5c4;
+  --primary: #9c4221;
+  --primary-foreground: #fff8f3;
+  --ring: #c47a45;
+  --radius: 0.85rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-ring: var(--ring);
+  --font-sans: var(--font-outfit), "Outfit", sans-serif;
+  --font-display: var(--font-fraunces), "Fraunces", serif;
+  --radius-lg: var(--radius);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
