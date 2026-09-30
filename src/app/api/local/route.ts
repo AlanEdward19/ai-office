@@ -1,5 +1,7 @@
 import { observeLocalMachine } from "@/domain/observe-local";
+import { followCodexAppServer } from "@/server/codex-follow";
 import { fileSpool, retainLocalBridge } from "@/server/local-bridge";
+import { detectAuthenticatedProviders } from "@/server/local-logins";
 import { abortableSleep } from "../observe/route";
 
 export const dynamic = "force-dynamic";
@@ -43,6 +45,17 @@ export function GET(request: Request) {
 
       write(`:${" ".repeat(2048)}\n\n`);
       bridge.beat();
+      void detectAuthenticatedProviders()
+        .then((providers) =>
+          followCodexAppServer({
+            signal: abort.signal,
+            loggedIn: providers.includes("openai"),
+            machineId: bridge.machineId,
+            owner: bridge.owner,
+            emit: (event) => write(sse("agent", event)),
+          }),
+        )
+        .catch(() => undefined);
       void observeLocalMachine({
         machineId: bridge.machineId,
         owner: bridge.owner,

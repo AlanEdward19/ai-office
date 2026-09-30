@@ -108,20 +108,25 @@ export function bindAgents(input: {
   return placed;
 }
 
-const WING_PROVIDERS = ["cursor", "anthropic"] as const;
+const WING_PROVIDERS = ["cursor", "anthropic", "openai"] as const;
 type WingProvider = (typeof WING_PROVIDERS)[number];
 
 function isWingProvider(provider: string): provider is WingProvider {
-  return provider === "cursor" || provider === "anthropic";
+  return provider === "cursor" || provider === "anthropic" || provider === "openai";
 }
 
 /**
- * Hired Cursor and Claude desks get a second seat in the local wing.
- * The cloud desk id is never reused. OpenAI has no local hook source.
+ * Hired Cursor, Claude, and OpenAI desks get a second seat in the local wing.
+ * The cloud desk id is never reused. OpenAI follows the local Codex app-server,
+ * not a cloud fleet.
  */
 export function bindLocalWing(input: {
   desks: readonly DeskRecord[];
-  observed: { cursor: AgentEvent | null; anthropic: AgentEvent | null };
+  observed: {
+    cursor: AgentEvent | null;
+    anthropic: AgentEvent | null;
+    openai: AgentEvent | null;
+  };
   owner: string;
   machineId: string | null;
   machineOnline: boolean;
@@ -133,7 +138,7 @@ export function bindLocalWing(input: {
       const byTime = a.createdAt.localeCompare(b.createdAt);
       return byTime === 0 ? a.id.localeCompare(b.id) : byTime;
     });
-  const bound: Record<WingProvider, boolean> = { cursor: false, anthropic: false };
+  const bound: Record<WingProvider, boolean> = { cursor: false, anthropic: false, openai: false };
   const placed: PlacedAgent[] = [];
   let slot = 0;
 

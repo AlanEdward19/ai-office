@@ -59,7 +59,7 @@ While the tab is open, the app follows one Cursor cloud agent: `ACTIVE` or `RUNN
 
 ## Local wing
 
-A local Cursor or Claude Code agent uses that same event, with `origin` `local` and a `machineId` this app creates in `~/.escritorio-de-ia/machine-id`. The owner is the person who started the session: the OS user, or the name or email the hook includes. The avatar sits in a separate wing, with a local badge, and is not the cloud desk. OpenAI is not observed locally.
+A local Cursor, Claude Code, or Codex agent uses that same event, with `origin` `local` and a `machineId` this app creates in `~/.escritorio-de-ia/machine-id`. The owner is the person who started the session: the OS user, or the name or email the hook includes. The avatar sits in a separate wing, with a local badge, and is not the cloud desk.
 
 The bridge is the open page. While the page is open it installs user-level hooks and removes only those hooks after the last page closes:
 
@@ -69,6 +69,12 @@ The bridge is the open page. While the page is open it installs user-level hooks
 Each hook appends a status line and exits. It does not record tool arguments or secrets. Other hooks in those files stay. If a file is not valid JSON, it is left untouched and that provider stays idle.
 
 Closing the page, or losing the spool, stops the working animation. The bridge starts at the end of the spool, so older lines are not shown as work in progress. There is no always-on process and no cloud fleet API.
+
+## Codex and Grok
+
+Codex is read from the local app-server, `codex app-server`, only while this page is open and only if OpenAI is already logged in on this machine. The client sends `initialize`, then `thread/list`, `thread/loaded/list`, and `thread/read`. It does not start a thread or a turn, and it does not call a cloud fleet API. A thread that is `idle` shows as idle, `active` shows as working, and `active` with `waitingOnApproval` shows as blocked. The OpenAI desk in the local wing follows that status. Closing the page stops the process. If the CLI is missing, or the login is not there, that desk does not show working.
+
+Grok is not on the job form. There is no presence API, so no desk is drawn as working from the product UI.
 
 ## Colleagues
 

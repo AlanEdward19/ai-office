@@ -107,12 +107,12 @@ test("the local wing is not a cloud desk", () => {
 
   const wing = bindLocalWing({
     desks,
-    observed: { cursor: local, anthropic: null },
+    observed: { cursor: local, anthropic: null, openai: null },
     owner: "ada",
     machineId: "machine-1",
     machineOnline: true,
   });
-  assert.equal(wing.length, 2);
+  assert.equal(wing.length, 3);
   assert.equal(wing[0]?.id, "local:desk-cursor");
   assert.equal(wing[0]?.event.origin, "local");
   assert.equal(wing[0]?.event.status, "working");
@@ -122,11 +122,15 @@ test("the local wing is not a cloud desk", () => {
   assert.equal(wing[1]?.event.status, "idle");
   assert.ok(wing[0] && cloud[0] && wing[0].x !== cloud[0].x);
   assert.ok(localWingSlot(0).x > deskSlot(0).x + 8);
-  assert.equal(wing.some((agent) => agent.form?.provider === "openai"), false);
+  const openaiSeat = wing.find((agent) => agent.form?.provider === "openai");
+  assert.equal(openaiSeat?.id, "local:desk-openai");
+  assert.equal(openaiSeat?.event.origin, "local");
+  assert.equal(openaiSeat?.event.status, "idle");
+  assert.ok(openaiSeat && openaiSeat.x !== cloud.find((agent) => agent.id === "desk-openai")?.x);
 
   const offline = bindLocalWing({
     desks,
-    observed: { cursor: local, anthropic: null },
+    observed: { cursor: local, anthropic: null, openai: null },
     owner: "ada",
     machineId: "machine-1",
     machineOnline: false,

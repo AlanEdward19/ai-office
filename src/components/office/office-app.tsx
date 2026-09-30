@@ -102,7 +102,8 @@ export function OfficeApp() {
   const [localEvents, setLocalEvents] = useState<{
     cursor: AgentEvent | null;
     anthropic: AgentEvent | null;
-  }>({ cursor: null, anthropic: null });
+    openai: AgentEvent | null;
+  }>({ cursor: null, anthropic: null, openai: null });
   const [presence, setPresence] = useState<MachinePresence | null>(null);
   const [localLink, setLocalLink] = useState<"connecting" | "online" | "offline">("offline");
   const [localNotice, setLocalNotice] = useState("");
@@ -242,15 +243,15 @@ export function OfficeApp() {
       setLocalEvents((current) => ({
         cursor: current.cursor ? presentLocalEvent(current.cursor, false) : null,
         anthropic: current.anthropic ? presentLocalEvent(current.anthropic, false) : null,
+        openai: current.openai ? presentLocalEvent(current.openai, false) : null,
       }));
     };
     const onAgent = (event: Event) => {
       const parsed = parsePayload((event as MessageEvent).data);
       if (!isAgentEvent(parsed) || parsed.origin !== "local") return;
       const provider = parsed.provider;
-      if (provider !== "cursor" && provider !== "anthropic") return;
-      const shown = presentLocalEvent(parsed, localOnlineRef.current);
-      setLocalEvents((current) => ({ ...current, [provider]: shown }));
+      if (provider !== "cursor" && provider !== "anthropic" && provider !== "openai") return;
+      setLocalEvents((current) => ({ ...current, [provider]: parsed }));
     };
     const onPresence = (event: Event) => {
       const parsed = parsePayload((event as MessageEvent).data);
@@ -262,6 +263,7 @@ export function OfficeApp() {
         setLocalEvents((current) => ({
           cursor: current.cursor ? presentLocalEvent(current.cursor, false) : null,
           anthropic: current.anthropic ? presentLocalEvent(current.anthropic, false) : null,
+          openai: current.openai ? presentLocalEvent(current.openai, false) : null,
         }));
       }
     };

@@ -1,4 +1,5 @@
 import type { AgentEvent, AgentStatus } from "./agent-event";
+import type { ProviderId } from "./providers";
 
 /** Marks the hook commands this app inserts. User hooks never carry it. */
 export const HOOK_MARK = "escritorio-de-ia-hook";
@@ -77,7 +78,7 @@ export function ownerFromHook(body: unknown, fallback: string): string {
 }
 
 export function localAgentEvent(input: {
-  provider: LocalHookProvider;
+  provider: ProviderId;
   owner: string;
   machineId: string;
   status: AgentStatus;
@@ -94,9 +95,13 @@ export function localAgentEvent(input: {
   };
 }
 
-/** A closed page or a missing machine never keeps a local agent working. */
+/** A closed page or a missing machine never keeps a local agent working or blocked. */
 export function presentLocalEvent(event: AgentEvent, machineOnline: boolean): AgentEvent {
-  if (event.origin === "local" && !machineOnline && event.status === "working") {
+  if (
+    event.origin === "local" &&
+    !machineOnline &&
+    (event.status === "working" || event.status === "blocked")
+  ) {
     return { ...event, status: "idle" };
   }
   return event;
