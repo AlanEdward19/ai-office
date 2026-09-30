@@ -174,8 +174,8 @@ export function OfficeApp() {
         />
       </div>
       <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-3 sm:p-5">
-        <header className="pointer-events-auto flex flex-wrap items-start justify-between gap-3">
-          <div className="max-w-xl rounded-3xl bg-[#f7f1e8] px-4 py-3 text-[#241c16] shadow-xl">
+        <header className="pointer-events-none flex flex-wrap items-start justify-between gap-3">
+          <div className="pointer-events-auto max-w-xl rounded-3xl bg-[#f7f1e8] px-4 py-3 text-[#241c16] shadow-xl">
             <p className="text-[0.65rem] tracking-[0.2em] text-[#8c7b6b] uppercase">
               Andar local
             </p>
@@ -187,7 +187,7 @@ export function OfficeApp() {
               é um projeto.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="pointer-events-auto flex gap-2">
             <Button variant="outline" onClick={() => setResetSignal((value) => value + 1)}>
               Recentrar
             </Button>

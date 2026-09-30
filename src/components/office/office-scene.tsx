@@ -3,7 +3,7 @@
 import { OrbitControls } from "@react-three/drei";
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useRef, type ComponentRef } from "react";
-import { OrthographicCamera, Vector3, type Group } from "three";
+import { MOUSE, OrthographicCamera, TOUCH, Vector3, type Group } from "three";
 
 import { STATUS_LABELS, type AgentStatus } from "@/domain/agent-event";
 import { PROVIDER_LABELS } from "@/domain/providers";
@@ -99,10 +99,19 @@ export function OfficeScene({
         maxPolarAngle={POLAR}
         minAzimuthAngle={Math.PI / 4}
         maxAzimuthAngle={Math.PI / 4}
-        minZoom={20}
+        minZoom={14}
         maxZoom={80}
         enableDamping
         dampingFactor={0.12}
+        mouseButtons={{
+          LEFT: MOUSE.PAN,
+          MIDDLE: MOUSE.DOLLY,
+          RIGHT: MOUSE.PAN,
+        }}
+        touches={{
+          ONE: TOUCH.PAN,
+          TWO: TOUCH.DOLLY_PAN,
+        }}
       />
     </>
   );
