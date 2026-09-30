@@ -42,6 +42,7 @@ export function GET(request: Request) {
       };
 
       write(`:${" ".repeat(2048)}\n\n`);
+      bridge.beat();
       void observeLocalMachine({
         machineId: bridge.machineId,
         owner: bridge.owner,
@@ -51,7 +52,10 @@ export function GET(request: Request) {
         emit: (event) => write(sse("agent", event)),
         presence: (presence) => write(sse("presence", presence)),
         notify: (notice) => write(sse("notice", notice)),
-        sleep: abortableSleep,
+        sleep: (ms, signal) => {
+          bridge.beat();
+          return abortableSleep(ms, signal);
+        },
       })
         .catch(() => {
           if (abort.signal.aborted) return;

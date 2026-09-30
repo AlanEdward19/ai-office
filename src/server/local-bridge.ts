@@ -61,13 +61,14 @@ process.stdout.write("{}\\n");
 type BridgeState = {
   count: number;
   timer: ReturnType<typeof setTimeout> | null;
+  watchdog: ReturnType<typeof setInterval> | null;
+  lastBeat: number;
+  epoch: number;
   machineId: string;
   owner: string;
   accept: LocalHookAccept;
   cursorInstalled: boolean;
   claudeInstalled: boolean;
-  cursorCreated: boolean;
-  claudeCreated: boolean;
 };
 
 export type LocalBridge = {
@@ -75,6 +76,7 @@ export type LocalBridge = {
   owner: string;
   spoolPath: string;
   accept: LocalHookAccept;
+  beat: () => void;
   release: () => void;
 };
 
@@ -89,11 +91,16 @@ function bridgeState(): BridgeState {
       accept: { cursor: false, anthropic: false },
       cursorInstalled: false,
       claudeInstalled: false,
-      cursorCreated: false,
-      claudeCreated: false,
+      watchdog: null,
+      lastBeat: 0,
+      epoch: 0,
     };
   }
-  return host[STATE_KEY];
+  const state = host[STATE_KEY];
+  state.watchdog ??= null;
+  state.lastBeat ??= 0;
+  state.epoch ??= 0;
+  return state;
 }
 
 function readText(file: string): string | null | "unreadable" {
@@ -160,16 +167,15 @@ function configIsOnlyOurs(config: Record<string, unknown>): boolean {
   return Object.keys(config).every((key) => key === "hooks" || key === "version") && hooksEmpty;
 }
 
-function uninstall(file: string, strip: (raw: string | null) => HookConfigResult, created: boolean) {
+function uninstall(file: string, strip: (raw: string | null) => HookConfigResult) {
   const raw = readText(file);
   if (raw === "unreadable" || raw === null) return;
   const stripped = strip(raw);
-  if (!stripped.ok) return;
-  if (created && configIsOnlyOurs(stripped.config)) {
+  if (!stripped.ok || !stripped.changed) return;
+  if (configIsOnlyOurs(stripped.config)) {
     fs.unlinkSync(file);
     return;
   }
-  if (!stripped.changed) return;
   writeJson(file, stripped.config);
 }
 
@@ -199,8 +205,6 @@ function activate(state: BridgeState) {
   if (!fs.existsSync(SPOOL_FILE)) fs.writeFileSync(SPOOL_FILE, "");
   const cursorRaw = readText(CURSOR_HOOKS_FILE);
   const claudeRaw = readText(CLAUDE_SETTINGS_FILE);
-  state.cursorCreated = cursorRaw === null;
-  state.claudeCreated = claudeRaw === null;
   state.accept = {
     cursor: cursorRaw === "unreadable" ? false : install(CURSOR_HOOKS_FILE, (raw) => mergeCursorHooks(raw, cursorCommands())),
     anthropic:
@@ -212,22 +216,60 @@ function activate(state: BridgeState) {
   state.claudeInstalled = state.accept.anthropic;
 }
 
+function sweepMarked(file: string, strip: (raw: string | null) => HookConfigResult) {
+  const raw = readText(file);
+  if (!raw || raw === "unreadable" || !raw.includes(HOOK_MARK)) return;
+  const stripped = strip(raw);
+  if (!stripped.ok || !stripped.changed) return;
+  if (configIsOnlyOurs(stripped.config)) {
+    fs.unlinkSync(file);
+    return;
+  }
+  writeJson(file, stripped.config);
+}
+
+/** Drops hook commands when no open page is still reading the spool. */
+function ensureWatchdog(state: BridgeState) {
+  if (state.watchdog) return;
+  const timer = setInterval(() => {
+    const epoch = state.epoch;
+    const live = state.count > 0 && Date.now() - state.lastBeat < 8_000;
+    if (live || state.epoch !== epoch) return;
+    if (state.timer) {
+      clearTimeout(state.timer);
+      state.timer = null;
+    }
+    state.count = 0;
+    if (state.epoch !== epoch) return;
+    deactivate(state);
+    sweepMarked(CURSOR_HOOKS_FILE, stripCursorHooks);
+    sweepMarked(CLAUDE_SETTINGS_FILE, stripClaudeSettings);
+    if (state.count === 0 && state.epoch === epoch) {
+      clearInterval(timer);
+      state.watchdog = null;
+    }
+  }, 1_000);
+  timer.unref();
+  state.watchdog = timer;
+}
+
 function deactivate(state: BridgeState) {
-  if (state.cursorInstalled) uninstall(CURSOR_HOOKS_FILE, stripCursorHooks, state.cursorCreated);
-  if (state.claudeInstalled) uninstall(CLAUDE_SETTINGS_FILE, stripClaudeSettings, state.claudeCreated);
+  if (state.cursorInstalled) uninstall(CURSOR_HOOKS_FILE, stripCursorHooks);
+  if (state.claudeInstalled) uninstall(CLAUDE_SETTINGS_FILE, stripClaudeSettings);
   state.cursorInstalled = false;
   state.claudeInstalled = false;
-  state.cursorCreated = false;
-  state.claudeCreated = false;
   state.accept = { cursor: false, anthropic: false };
 }
 
 export function retainLocalBridge(): LocalBridge {
   const state = bridgeState();
+  ensureWatchdog(state);
+  state.epoch += 1;
   if (state.timer) {
     clearTimeout(state.timer);
     state.timer = null;
   }
+  state.lastBeat = Date.now();
   state.count += 1;
   if (state.count === 1) {
     try {
@@ -236,8 +278,6 @@ export function retainLocalBridge(): LocalBridge {
       state.accept = { cursor: false, anthropic: false };
       state.cursorInstalled = false;
       state.claudeInstalled = false;
-      state.cursorCreated = false;
-      state.claudeCreated = false;
       if (!state.machineId) state.machineId = "offline";
     }
   }
@@ -246,6 +286,9 @@ export function retainLocalBridge(): LocalBridge {
     owner: state.owner,
     spoolPath: SPOOL_FILE,
     accept: { ...state.accept },
+    beat() {
+      state.lastBeat = Date.now();
+    },
     release() {
       state.count = Math.max(0, state.count - 1);
       if (state.count > 0 || state.timer) return;
@@ -253,9 +296,17 @@ export function retainLocalBridge(): LocalBridge {
         state.timer = null;
         if (state.count === 0) deactivate(state);
       }, UNINSTALL_GRACE_MS);
+      state.timer.unref();
     },
   };
 }
+
+const bridge = bridgeState();
+if (bridge.watchdog) {
+  clearInterval(bridge.watchdog);
+  bridge.watchdog = null;
+}
+ensureWatchdog(bridge);
 
 export function fileSpool(file: string): LocalSpool {
   return {
@@ -271,15 +322,18 @@ export function fileSpool(file: string): LocalSpool {
     async read(offset) {
       let handle: fs.promises.FileHandle | null = null;
       try {
-        const stat = await fs.promises.stat(file);
+        handle = await fs.promises.open(file, "r");
+        const stat = await handle.stat();
         if (stat.size < offset) return { ok: true, chunk: "", offset: stat.size, reset: true };
         if (stat.size === offset) return { ok: true, chunk: "", offset };
-        handle = await fs.promises.open(file, "r");
         const length = stat.size - offset;
         const buffer = Buffer.alloc(length);
         await handle.read(buffer, 0, length, offset);
         return { ok: true, chunk: buffer.toString("utf8"), offset: stat.size };
-      } catch {
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+          return { ok: true, chunk: "", offset: 0, reset: true };
+        }
         return { ok: false };
       } finally {
         await handle?.close();
