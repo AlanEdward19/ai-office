@@ -82,6 +82,10 @@ Someone else can open the same page and choose "Entrar só para olhar" with a di
 
 The shared channel is memory in the dev server, tied to the open pages. It sends status only: provider, origin, owner, machine id, project id, status, and when it was observed. Transcripts, tool arguments, file paths, and secrets are not included. When the last page closes, the snapshot and the sessions are dropped. Nothing stays connected, and a colleague page does not start the Cursor observer or the local hook bridge.
 
+## Voice and video
+
+Two open pages hear and see each other over a direct WebRTC connection. The dev server only forwards the offer, the answer, and ICE candidates, and only to a page that is connected at that moment. It does not open a cloud room, and it does not mix the call into agent status. Microphone and camera can each be turned off. When the last page closes, the signal is dropped and the call ends. Nothing stays running.
+
 ## Checks
 
 ```bash

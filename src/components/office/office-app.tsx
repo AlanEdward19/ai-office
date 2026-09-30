@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BoardPanel, type BoardState } from "./board-panel";
+import { OfficeCall } from "./office-call";
 import { deskStore } from "./desk-store";
 import { dispatchStore } from "./dispatch-store";
 import { OpenRoomDialog } from "./open-room-dialog";
@@ -797,6 +798,7 @@ export function OfficeApp() {
           WASD anda · setas giram · arraste o mouse para olhar · clique no chão · E interage
         </p>
       ) : null}
+      {session ? <OfficeCall /> : null}
       {sessionReady && !session ? (
         <SignInCard
           machineName={machineName}
