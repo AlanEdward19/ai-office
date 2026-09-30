@@ -97,8 +97,9 @@ test("claude cloud auth is the claude.ai login and not an API key", () => {
 
 test("a started claude session is a link, and the desk is not marked working", () => {
   const copy = claudeCloudStartedCopy(true);
-  assert.match(copy, /ocioso/);
-  assert.equal(copy.includes("passa a trabalhando"), false);
+  assert.match(copy, /unknown/);
+  assert.match(copy, /running, idle ou terminated/);
+  assert.equal(copy.includes("continua ocioso"), false);
   assert.equal(claudeCloudAttachment(sessionUrl).url, sessionUrl);
   assert.match(claudeCloudComment(sessionUrl), new RegExp(sessionId));
   assert.equal(claudeCloudComment(sessionUrl).includes("ANTHROPIC_API_KEY"), false);

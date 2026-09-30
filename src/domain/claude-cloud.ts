@@ -97,7 +97,7 @@ export function claudeCloudStartedCopy(linked: boolean): string {
   const lead = linked
     ? "Card na mesa do Claude. A sessão na nuvem foi aberta pelo CLI já logado."
     : "A sessão Claude na nuvem foi aberta, mas o Linear não gravou o vínculo.";
-  return `${lead} O avatar da nuvem continua ocioso: o CLI não informa se a sessão segue trabalhando ou se já terminou. O link abre a sessão real.`;
+  return `${lead} A mesa mostra running, idle ou terminated da lista da Anthropic enquanto a página está aberta. Se a chamada falha, ou se essa sessão não está na lista, a mesa não fica ociosa: mostra a falha ou unknown.`;
 }
 
 function stripAnsi(value: string): string {

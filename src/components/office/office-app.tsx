@@ -7,6 +7,12 @@ import { isAgentEvent, STATUS_LABELS, type AgentEvent } from "@/domain/agent-eve
 import { isMachinePresence, presentLocalEvent, type MachinePresence } from "@/domain/local-hooks";
 import { claudeCloudStartedCopy } from "@/domain/claude-cloud";
 import {
+  applyClaudeCloudLabels,
+  parseClaudeCloudReport,
+  placedStatusText,
+  type ClaudeCloudReport,
+} from "@/domain/claude-cloud-status";
+import {
   decideDrop,
   preferredCursorDeskId,
   refusalCopy,
@@ -100,6 +106,7 @@ export function OfficeApp() {
   );
   const desks = useMemo(() => deskStore.desksFrom(deskSnapshot), [deskSnapshot]);
   const [observed, setObserved] = useState<AgentEvent | null>(null);
+  const [claudeReport, setClaudeReport] = useState<ClaudeCloudReport | null>(null);
   const [notice, setNotice] = useState("A página ainda não está observando.");
   const [localEvents, setLocalEvents] = useState<{
     cursor: AgentEvent | null;
@@ -231,6 +238,20 @@ export function OfficeApp() {
     return () => {
       source.removeEventListener("agent", onAgent);
       source.removeEventListener("notice", onNotice);
+      source.close();
+    };
+  }, [host]);
+
+  useEffect(() => {
+    if (!host) return;
+    const source = new EventSource("/api/claude-cloud");
+    const onStatus = (event: Event) => {
+      const report = parseClaudeCloudReport(parsePayload((event as MessageEvent).data));
+      if (report) setClaudeReport(report);
+    };
+    source.addEventListener("status", onStatus);
+    return () => {
+      source.removeEventListener("status", onStatus);
       source.close();
     };
   }, [host]);
@@ -421,13 +442,17 @@ export function OfficeApp() {
   );
   const cloudAgents = useMemo(
     () =>
-      bindAgents({
-        desks,
-        observed,
-        owner: viewerName || session?.name || "esta máquina",
-        preferredDeskId: preferredCursorDeskId(dispatches),
-      }),
-    [desks, observed, viewerName, session?.name, dispatches],
+      applyClaudeCloudLabels(
+        bindAgents({
+          desks,
+          observed,
+          owner: viewerName || session?.name || "esta máquina",
+          preferredDeskId: preferredCursorDeskId(dispatches),
+        }),
+        dispatches,
+        claudeReport,
+      ),
+    [desks, observed, viewerName, session?.name, dispatches, claudeReport],
   );
   const localAgents = useMemo(
     () =>
@@ -907,12 +932,20 @@ function NearbyDesk({ agent, offline }: { agent: PlacedAgent; offline: boolean }
       </div>
     );
   }
-  if (agent.form) return <JobFormCard form={agent.form} status={agent.event.status} />;
+  if (agent.form) {
+    return (
+      <JobFormCard
+        form={agent.form}
+        status={agent.event.status}
+        statusText={placedStatusText(agent)}
+      />
+    );
+  }
   return (
     <div className="rounded-2xl border border-border bg-white/80 p-3">
       <p className="text-[0.65rem] tracking-[0.16em] text-muted uppercase">Cloud agent</p>
       <h3 className="font-display mt-1 text-lg">{PROVIDER_LABELS[agent.event.provider]}</h3>
-      <p className="mt-1 text-sm">{STATUS_LABELS[agent.event.status]}</p>
+      <p className="mt-1 text-sm">{placedStatusText(agent)}</p>
     </div>
   );
 }

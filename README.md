@@ -22,8 +22,9 @@ Put real keys in `.env.local` only. That file is gitignored. Do not commit keys.
 | --- | --- | --- |
 | `LINEAR_API_KEY` | Choosing a project for a new room, and that room's board | Personal API key. The app sends it in the `Authorization` header with no `Bearer` prefix. |
 | `CURSOR_API_KEY` | Cloud agent status, and starting one when a card is dropped on a Cursor desk | User API key from the Cursor dashboard. Used to list cloud agents, read a run stream, and `POST /v1/agents` while the page is open. |
+| `ANTHROPIC_API_KEY` | Live status of a Claude cloud session this app started | Read on the server from `.env.local`. Sent only as `x-api-key` on `GET https://api.anthropic.com/v1/sessions` while the host page is open. Not sent to the page. |
 
-A hired Claude desk starts a cloud session with `claude --cloud` and the CLI's existing claude.ai login. That path does not add a variable. `LINEAR_API_KEY` and `CURSOR_API_KEY` stay the only keys.
+A hired Claude desk still starts a cloud session with `claude --cloud` and the CLI's existing claude.ai login. That start does not use `ANTHROPIC_API_KEY`. The same variable is what the server uses to read live status.
 
 The lobby, reception, and CEO corner render without either key. They stay on the ground floor. A room appears when you bind it to a Linear project that does not already have one. The room identity is the project id. The name is only the label on the door. Reloading the project list updates that label. It does not open a room by itself.
 
@@ -51,7 +52,7 @@ Writing a card creates a Linear issue in that room's project. The same issue ope
 
 Drop the card on a desk that already has a ficha de vaga. The company on that form has to be logged in on this machine. A desk without a form does not take a card.
 
-Cursor and a hired Claude desk can start work. A drop on a Cursor desk calls the Cursor cloud agents API, and the existing observer moves that desk's avatar to working, then to done when the run finishes. A drop on a Claude desk runs `claude --cloud` with the issue text. The CLI uses the claude.ai login it already has and opens a session at claude.ai/code. The board keeps that session link. The cloud avatar stays idle: the CLI prints the session when it is created and does not report later whether it is still working or finished. OpenAI stays on the form, but the drop is refused. Nothing is sent to the OpenAI API, and no Anthropic API key is read or stored.
+Cursor and a hired Claude desk can start work. A drop on a Cursor desk calls the Cursor cloud agents API, and the existing observer moves that desk's avatar to working, then to done when the run finishes. A drop on a Claude desk runs `claude --cloud` with the issue text. The CLI uses the claude.ai login it already has and opens a session at claude.ai/code. The board keeps that session link. While the host page is open, that desk shows `running`, `idle`, or `terminated` from the Managed Agents list for the session this desk started. A missing key, a refused key, a failed call, or a session that is not in the list shows the failure or `unknown`. The desk does not fall back to idle. OpenAI stays on the form, but the drop is refused. Nothing is sent to the OpenAI API. The Anthropic key stays on the server.
 
 The Linear issue keeps the link to the Cursor agent or the Claude cloud session. Closing the page stops the observer and aborts a Claude start that has not finished. No process keeps running.
 
@@ -59,7 +60,7 @@ The Linear issue keeps the link to the Cursor agent or the Claude cloud session.
 
 While the tab is open, the app follows one Cursor cloud agent: `ACTIVE` or `RUNNING` shows as working, and `FINISHED` shows as done. The scene only reads that internal event. Closing the tab aborts the stream. Nothing is left polling. Cloud events keep `machineId` null.
 
-A Claude cloud session started from a desk is not part of that Cursor stream. The page shows the link the CLI printed. It does not invent working or done. There is no non-interactive Claude Code command that lists those cloud sessions. Anthropic's Managed Agents API can list and start sessions with `GET` and `POST https://api.anthropic.com/v1/sessions`, header `x-api-key` set to an `ANTHROPIC_API_KEY`, and beta header `managed-agents-2026-04-01`. That key is not configured. `LINEAR_API_KEY` and `CURSOR_API_KEY` stay the only keys.
+A Claude cloud session started from a desk is not part of that Cursor stream. While the host tab is open, the server lists Managed Agent sessions with `GET https://api.anthropic.com/v1/sessions`. The request sends `x-api-key` from `ANTHROPIC_API_KEY`, `anthropic-version: 2023-06-01`, and `anthropic-beta: managed-agents-2026-04-01`. The hired Claude cloud desk shows `running`, `idle`, or `terminated` when that list contains the session id stored at drop time. `rescheduling` is left off the desk. If `ANTHROPIC_API_KEY` is missing, the desk shows `falha: ANTHROPIC_API_KEY ausente`. A refused key, a failed call, or an unreadable list shows that failure. No matching row shows `unknown`. None of those cases is shown as idle. Closing the tab stops the poll. A colleague sees the published label and does not call the API.
 
 ## Local wing
 
@@ -84,7 +85,7 @@ Grok is not on the job form. There is no presence API, so no desk is drawn as wo
 
 Someone else can open the same page and choose "Entrar só para olhar" with a different name. They see the rooms and agent status this machine is publishing, and they can walk the floor. They cannot hire, open a room, drop a card, create a card, or publish an event.
 
-The shared channel is memory in the dev server, tied to the open pages. It sends status only: provider, origin, owner, machine id, project id, status, and when it was observed. Transcripts, tool arguments, file paths, and secrets are not included. When the last page closes, the snapshot and the sessions are dropped. Nothing stays connected, and a colleague page does not start the Cursor observer or the local hook bridge.
+The shared channel is memory in the dev server, tied to the open pages. It sends status only: provider, origin, owner, machine id, project id, status, when it was observed, and, for a hired Claude cloud desk, a closed label (`running`, `idle`, `terminated`, `unknown`, or one failure string). Transcripts, tool arguments, file paths, and secrets are not included. When the last page closes, the snapshot and the sessions are dropped. Nothing stays connected, and a colleague page does not start the Cursor observer, the Claude cloud status poll, or the local hook bridge.
 
 ## Voice and video
 

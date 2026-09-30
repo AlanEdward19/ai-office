@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { Vector3, type Group } from "three";
 
 import { STATUS_LABELS, type AgentStatus } from "@/domain/agent-event";
+import { isClaudeCloudLabel, placedStatusText } from "@/domain/claude-cloud-status";
 import { ELEVATOR, type FloorId } from "@/domain/floors";
 import { PROVIDER_LABELS } from "@/domain/providers";
 import { localWingPlate, type PlacedAgent } from "@/domain/placement";
@@ -18,6 +19,14 @@ const STATUS_COLOR: Record<AgentStatus, string> = {
   blocked: "#b42318",
   done: "#1f7a4d",
 };
+
+function claudeSwatch(label: string | null | undefined): string | null {
+  if (!label || !isClaudeCloudLabel(label)) return null;
+  if (label === "running") return "#e0a106";
+  if (label === "terminated") return "#1f7a4d";
+  if (label === "idle" || label === "unknown") return "#8d8276";
+  return "#b42318";
+}
 
 export function OfficeScene({
   rooms,
@@ -319,6 +328,9 @@ function DeskAgent({
     ? PROVIDER_LABELS[agent.form.provider]
     : PROVIDER_LABELS[agent.event.provider];
   const role = agent.form?.role;
+  const statusText = placedStatusText(agent);
+  const swatch = claudeSwatch(agent.claudeCloudLabel) ?? STATUS_COLOR[agent.event.status];
+  const moving = agent.claudeCloudLabel ? agent.claudeCloudLabel === "running" : agent.event.status === "working";
   const lines = local
     ? [
         { text: "Local", kind: "kicker" as const },
@@ -333,7 +345,7 @@ function DeskAgent({
     : [
         { text: company, kind: "kicker" as const },
         { text: role ?? "Nuvem", kind: "title" as const },
-        { text: STATUS_LABELS[agent.event.status], kind: "meta" as const },
+        { text: statusText, kind: "meta" as const },
       ];
   return (
     <group position={[agent.x, 0, agent.z]}>
@@ -351,13 +363,13 @@ function DeskAgent({
       <mesh position={[0.48, 0.86, 0.15]}>
         <sphereGeometry args={[0.07, 16, 16]} />
         <meshStandardMaterial
-          color={STATUS_COLOR[agent.event.status]}
-          emissive={STATUS_COLOR[agent.event.status]}
-          emissiveIntensity={agent.event.status === "working" ? 0.6 : 0.15}
+          color={swatch}
+          emissive={swatch}
+          emissiveIntensity={moving ? 0.6 : 0.15}
         />
       </mesh>
       <Chair position={[0, 0, -0.55]} color={local ? "#2c3842" : "#5c4636"} />
-      <AgentFigure status={agent.event.status} local={local} />
+      <AgentFigure status={agent.event.status} local={local} moving={moving} swatch={swatch} />
       {selected ? (
         <mesh position={[0, 0.03, 0.1]} rotation={[-Math.PI / 2, 0, 0]}>
           <ringGeometry args={[0.85, 0.96, 40]} />
@@ -377,12 +389,21 @@ function DeskAgent({
   );
 }
 
-function AgentFigure({ status, local }: { status: AgentStatus; local: boolean }) {
+function AgentFigure({
+  status,
+  local,
+  moving,
+  swatch,
+}: {
+  status: AgentStatus;
+  local: boolean;
+  moving: boolean;
+  swatch: string;
+}) {
   const ref = useRef<Group>(null);
   useFrame(({ clock }) => {
     if (!ref.current) return;
-    ref.current.position.y =
-      status === "working" ? Math.sin(clock.elapsedTime * 3.2) * 0.05 : 0;
+    ref.current.position.y = moving ? Math.sin(clock.elapsedTime * 3.2) * 0.05 : 0;
     ref.current.userData.status = status;
   });
   return (
@@ -394,7 +415,7 @@ function AgentFigure({ status, local }: { status: AgentStatus; local: boolean })
     >
       <mesh position={[0, 0.72, 0]} castShadow>
         <capsuleGeometry args={[0.16, 0.42, 6, 12]} />
-        <meshStandardMaterial color={STATUS_COLOR[status]} roughness={0.55} />
+        <meshStandardMaterial color={swatch} roughness={0.55} />
       </mesh>
       <mesh position={[0, 1.18, 0]} castShadow>
         <sphereGeometry args={[0.16, 20, 20]} />
