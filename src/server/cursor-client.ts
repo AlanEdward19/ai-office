@@ -1,4 +1,5 @@
 import "server-only";
+import {recordProviderHistory} from "./agent-history";
 
 import {
   cursorCreateBody,
@@ -59,7 +60,9 @@ export function createCursorClient(apiKey: string): CursorCloudClient {
         signal,
         "application/json",
       );
-      return readAgentList(await response.json());
+      const payload=await response.json();
+      void recordProviderHistory("cursor",payload).catch(()=>{});
+      return readAgentList(payload);
     },
     async getRun(agentId, runId, signal) {
       const response = await cursorFetch(

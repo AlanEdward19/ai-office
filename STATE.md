@@ -1,72 +1,59 @@
-# STATE.md
+# STATE — continuidade
 
-Fonte única de handoff entre skills (`agentic-delivery`, harness, spec, loop).
+## Histórico preservado
+- Visual/câmera/acabamento: `docs/state-visual-history.md`.
+- Area meetings: `.specs/features/area-meetings/build-log.md`.
+- Living office: `.specs/features/living-office/build-log.md`.
 
-## Decisões (AD)
-| ID | Resumo |
-|---|---|
-| AD-001 | Bootstrap agente: `AGENTS.md`, `rules/`, `scripts/`, `docs/`, `HARNESS.md` (2026-09-30) |
-| AD-002 | Spec routing: `tlc-discover` / `tlc-spec-lean` / `tlc-spec-driven` via Princípio 9 em `agentic-delivery` |
+## Living office (2026-09-30)
+- Plano inteiro autorizado; um builder implementou mapa, áreas, efeito exterior, histórico local/cloud privado, rotinas/RH/encontros e controles privados.
+- Provas reais R3F incluem 8 salas + 18 postos, seis câmera/andar, faixa de corredor 1.2m, coreografia física contra malhas e travessia da porta.
+- Sem commit/reset/dependência nova; diff prévio area-meetings preservado.
+- Gate final e verifier independente `scripts/verify.sh --webpack` exit0: build/TS/lint e112 testes verdes.
+- Provas UI/visuais pendentes: navegador congelado e recuperação proibida pela política da ferramenta. Nenhum PASS visual declarado.
 
-## Handoff
-- **Última fase concluída**: project-bootstrap (via agentic-delivery)
-- **Artefatos**: `AGENTS.md`, `rules/*`, `scripts/*`, `docs/**`, `HARNESS.md`, `docs/adr/ADR-0001-domain-session-model.md`
-- **Eval gates disponíveis**: `scripts/verify.sh`
-- **Próximo passo sugerido**: skill `harness-engineering` se quiser sensores/guias além do verify; features novas → `agentic-delivery` → spec (Lean/Driven)
+## Verifier fix (2026-10-01)
+- Encontro exige proximidade + segmento físico livre; desvio por porta funciona, parede fechada gera blocked legível. Duas regressões C20/C22.
+- C3/C4 agora têm testes GPU-free de shader/bounds; C7 ponteiro corrigido e provas reais C5/C17/C19/C20 acrescentadas sem substituir originais.
+- Gate após fix `scripts/verify.sh --webpack` exit0, build/TS/lint/107 testes; revisão visual continua pendente.
 
-## PM tool
-Linear (API key local). Org/tags: confirmar com `pm-handoff` quando for criar cards.
+## Provas complementares (2026-10-01)
+- C18 usa admissão real da UI + deskStore: falha/full/duplicado preservam postos e confirmação. publish agora grava antes de alterar snapshot.
+- C19 testa funções de apresentação usadas por Avatar/AgentActors: sem gait/bob e montagem discreta em reduced motion. C22 cobre cancel explícito e destinatário removido.
+- C13 usa adapter nativo de produção em tmpdir real: modo700/600, rename, erro de escrita preserva arquivo, corrupção não é sobrescrita.
+- Gate final exit0: build/TS/lint/111 testes. Código congelado para verifier; revisão visual pendente permanece sem PASS.
 
-## Visual office (2026-09-30)
-- Aparência local de personagem, membros animados e colisão por limites da geometria renderizada.
-- Artefatos: `.specs/features/visual-office/{plan,checks,verification}.md`.
-- Gate: `scripts/verify.sh --webpack` = 0; build, lint e 46 testes.
-- Turbopack original falhou por bind interno bloqueado; scripts aceitam argumentos opcionais.
-- Verifier independente: PASS light; UI também inspecionada no navegador pelo autor.
-- Sem commit. Aparência dura nesta aba; clique bloqueado para, sem pathfinding.
+## DPR focus fix (2026-10-01)
+- AreaFocus atualiza target/depth nas dimensões físicas obtidas por getDrawingBufferSize a cada frame ativo; reage a resize/DPR sem reduzir pixels internos.
+- Blur conserva raio em CSS; helper de produção testado com target/depth Three em DPR1/1.5/2 e resize, sem realocação redundante.
+- Gate final exit0: build/TS/lint/112 testes; revisão visual continua pendente e sem PASS.
 
-## Escritório social (2026-09-30)
-- Direção visual: 3D suave com câmera social elevada padrão; câmera próxima e zoom.
-- Avatar compartilhado cena/preview: 6 penteados, 4 roupas, 4 acessórios; paletas e looks prontos.
-- Cenário: lounge, café, mesas equipadas, plantas, móveis arredondados e paredes baixas.
-- UX: dock, minimapa, ajuda; gestos acenar/dançar por 3 segundos; caminhada com blend suave.
-- Auxiliar abortableSleep movido da rota observe para server, corrigindo export inválido detectado pelo Next.
-- Artefatos: `.specs/features/social-office/{plan,checks,verification}.md`.
-- Gates: `scripts/verify.sh --webpack` = 0, build/lint/48 testes; Verifier independente PASS light.
-- Autor confirmou no browser: look Creative, fones, deslocamento por clique, troca das duas câmeras e acionamento de gestos.
-- Capturas: `/tmp/ai-office-social-avatar.jpg`, `/tmp/ai-office-social-scene.jpg`.
-- Sem commit. Multiplayer com avatares remotos, voz por proximidade e editor de mapas fora desta fatia visual.
+## Verificação independente final (2026-10-01)
+- Round3: 16/23 critérios integralmente comprovados; sete dependem de aceitação visual renderizada, impedida pelo navegador/política da ferramenta.
+- Build/TS/lint/112 testes passaram; mutação DPR detectada, dez mutações anteriores preservadas no relatório com proveniência.
+- Validator de conclusão permanece FAIL pela evidência visual ausente; implementação não declarada integralmente aceita.
+- Prévia reiniciada na sessão35876; HTTP200 em http://127.0.0.1:3847/.
 
-## Correção de orientação (2026-09-30)
-- Corrigido sinal da rotação visual: yaw do walker aponta +X, rotação Three do modelo frontal -Z requer -yaw.
-- OfficePlayer usa avatarRotation; teste de regressão cobre giros de mouse e W em cinco direções.
-- Gate `scripts/verify.sh --webpack` = 0: build, lint e 49 testes. Sem commit.
+## Office interactions — correções (2026-10-01)
+- Shader tinha uniform active reservado em GLSL; maskEnabled corrige compilação. Quad fullscreen sem depth/culling; GPU/visual não verificados.
+- Cadeiras orientadas à mesa, sentar usuário limitado0.7m e liberado por movimento/Espaço/andar/correção. Exclusão de colisão somente identidade de cadeira; postura opcional sanitizada na presença.
+- Agente aproxima por trás da cadeira sem atravessar mesa, senta/digita/descansa; café tem4reservas, copo acompanha braço; gestos conversa.
+- Clique NPC abre Histórico diretamente; E próximo local também. Conversa continua ação separada, histórico real/autorização preservados.
+- Gate verify --webpack exit0: build/TS/lint/119 testes, incluindo4assentos café contra malhas. Checks novo perfilui validator0errors6selectorwarnings.
+- Limitação: sentar usa ajuste local de pose de até0.7m, não nova simulação esquelética. Inspeção e efeito/poses têm prova fonte/domínio, não revisão visual; nenhuma afirmação de PASS UI. Sem commit/dependência.
 
-## Modos de câmera (2026-09-30)
-- Botões independentes: 1ª pessoa, 3ª pessoa e Isométrica (usuário esclareceu que topdown significava a vista social inclinada).
-- Primeira pessoa oculta avatar local e segue olhos; terceira acompanha atrás; isométrica usa diagonal com movimento relativo à câmera.
-- Gate `scripts/verify.sh --webpack` = 0: build, lint e 52 testes. Sem commit.
+## Human seat occupancy verifier fix (2026-10-01)
+- Coffee reservations include ground seated peers + immediate user pose, reallocate when human takes chair; own desk remains standing beside chair while occupied, readable waiting caption and automatic resume.
+- Colleague presentation uses same human occupancy guard, so stale shared actor snapshot cannot overlap current seated person. Task/provider state unchanged.
+- Three regressions preserve previous119 assertions; gate exit0 build/TS/lint/122 tests. Code frozen for verifier, visual still pending.
 
-## 2026-09-30 — interação completa e acabamento
-- Mesa agora abre painel (E/botão); entrada de sala alcançável por fora da colisão.
-- Painel de agente com atividade, conversa privada, cards, renomear e contratação. Todos providers podem receber cards; CLI usa sessão própria retomável, Cursor cloud vinculado.
-- Revisão independente detectou e corrigiu cancel Cursor inicial, troca de cloud agent e corrida de processo interrompido.
-- Teto interno com BackSide/vigas/luzes, relógio real Date, fuso IANA validado do anfitrião compartilhado sem transcript; labels de hora/conversão nos agentes locais, sem label no próprio avatar.
-- Layout responsivo: dock/câmera separados, chamada recolhível, alvos 40–44px, painéis/dialog com rolagem e quadro fluido.
-- Preview conferido 1280x720 e 360x800; criador mobile rola. Sem envio real a provedores/Linear durante testes.
-- Gate final: scripts/verify.sh --webpack PASS (build/lint/60 testes), git diff --check limpo. Arquivos sem commit.
+## Office interactions — revisão final (2026-10-01)
+- Verifier independente: build/TS/lint/122 testes exit0; cinco regressões isoladas detectadas pelos testes. Nenhum defeito computacional adicional encontrado.
+- Relatório office-interactions mantém FAIL: C1–C5 exigem renderização/interação UI sem evidência disponível; C6 PASS. Validator exit1 exclusivamente pelo verdict visual pendente.
+- Lição: reservas de assento devem excluir também pessoas sentadas; presença sanitizada e pose imediata evitam sobreposição enquanto o snapshot compartilhado atualiza.
+- Prévia HTTP200, processo confirmado nesta worktree; plano screen-sharing proposto e validator0errors/0warnings. Sem implementação de captura ou commit.
 
-## 2026-09-30 — paredes nas três câmeras
-- Paredes opacas com 3,2 m no lobby, RH, salas, ala local e perímetro; rodapés e passagens mantidos.
-- Isométrica oculta todo teto/vigas e usa corte de 1,1 m nas paredes voltadas à câmera; demais paredes mantêm altura.
-- 3ª pessoa usa raycast nas paredes para aproximar a câmera antes da obstrução; personagem mantém colisões do mobiliário/paredes.
-- Gate scripts/verify.sh --webpack PASS (60 testes), servidor localhost responde HTTP 200.
-- Conferência visual revelou obstrução na 3ª pessoa e motivou raycast. Rechecagem final do browser ficou limitada por timeouts CDP, sem evidência visual final.
-
-## 2026-09-30 — carregamento, elevador e áreas vazias
-- Reiniciado preview dev (npm run dev -- --webpack). Imports Drei agora diretos por componente; carregamento dinâmico tem limite 20s e erro visível/recarregar em SceneBoundary.
-- Cena sai de Abrindo o andar em aba limpa; conferida visualmente nas três câmeras. Aba original antiga ainda apresentou timeout de controle; preview novo carregou normalmente.
-- Elevador gira -PI/2 para a porta apontar ao oeste, consistente com entrada/interação/arrivalPose.
-- Vagas visuais de projeto recebem áreas comuns mobiliadas (biblioteca/foco/convivência) e são liberadas quando projeto real ocupa slot; RH ganha espera/biblioteca/formação/entrevistas.
-- Etiquetas 3D respeitam oclusão de paredes em vez de aparecer por trás.
-- Gate final PASS: scripts/verify.sh --webpack, build/lint/62 testes. Sem commit e sem mensagens externas de agentes.
+## Office builder — plano (2026-10-01)
+- Nova orientação do usuário: gabinete/responsável por projeto/andar vem do Linear; CEO geral pode coexistir, sem canto global fixo obrigatório.
+- Plano office-builder cobre editor, andares fixos/projeto, elevador/portas/acessos, áreas IA local/cloud/RH e mesas de pessoas/agentes, rascunho/publicação e migração.
+- Documento89linhas, validate_plan exit0 sem erros/avisos; propostas de persistência/contratos/limites aguardam revisão. Apenas planejamento, sem alterar código/runtime ou commitar.

@@ -4,19 +4,22 @@ import { RoundedBox } from '@react-three/drei/core/RoundedBox';
 import { useFrame } from '@react-three/fiber';
 import { useRef, type RefObject } from 'react';
 import type { Group } from 'three';
-import { activeGesture, blendMotion, type Appearance, type AvatarMotion } from '@/domain/character';
+import { activeGesture, blendMotion, resetReducedAvatar, applyAvatarActivity, type Appearance, type AvatarMotion } from '@/domain/character';
 
 function SoftPart({ position, scale, color }: { position: [number, number, number]; scale: [number, number, number]; color: string }) {
   return <mesh position={position} scale={scale} castShadow><sphereGeometry args={[1, 20, 16]} /><meshStandardMaterial color={color} roughness={0.75} /></mesh>;
 }
 
-export function Avatar({ appearance: a, motion, preview = false }: { appearance: Appearance; motion?: RefObject<AvatarMotion>; preview?: boolean }) {
+export function Avatar({ appearance: a, motion, preview = false, reducedMotion = false }: { appearance: Appearance; motion?: RefObject<AvatarMotion>; preview?: boolean; reducedMotion?:boolean }) {
   const root = useRef<Group>(null);
   const head = useRef<Group>(null);
   const arms = useRef<(Group | null)[]>([]);
   const legs = useRef<(Group | null)[]>([]);
   const blend = useRef(0);
+  const cup=useRef<Group>(null);
   useFrame(({ clock }, dt) => {
+    if(cup.current)cup.current.visible=motion?.current.activity==="coffee";
+    if(reducedMotion){resetReducedAvatar(root.current,head.current,arms.current,legs.current);applyAvatarActivity(root.current,arms.current,legs.current,motion?.current,clock.elapsedTime,true);return;}
     const t = clock.elapsedTime;
     blend.current = blendMotion(blend.current, motion?.current.moving ?? false, dt);
     const gesture = motion ? activeGesture(motion.current.gesture, t - motion.current.gestureStarted) : null;
@@ -35,6 +38,7 @@ export function Avatar({ appearance: a, motion, preview = false }: { appearance:
       if (gesture === 'dance') arm.rotation.z = (i === 0 ? 1 : -1) * (0.9 + Math.sin(t * 7) * 0.3);
     });
     legs.current.forEach((leg, i) => { if (leg) leg.rotation.x = swing * (i === 0 ? 1 : -1); });
+    applyAvatarActivity(root.current,arms.current,legs.current,motion?.current,t,false);
   });
   const coat = a.outfit === 'jacket' || a.outfit === 'formal';
   return <group ref={root} name="avatar">
@@ -80,6 +84,7 @@ export function Avatar({ appearance: a, motion, preview = false }: { appearance:
     </group>
     {[-1, 1].map((side, i) => <group key={side}>
       <group ref={node => { arms.current[i] = node; }} position={[side * 0.3, 1.2, 0]}>
+        {i===1&&<group ref={cup} name="held-coffee" visible={false} position={[0,-.48,0]}><mesh><cylinderGeometry args={[.06,.05,.14,16]} /><meshStandardMaterial color="#fff4db" /></mesh></group>}
         <SoftPart position={[0, -0.16, 0]} scale={[0.09, a.outfit === 'tee' ? 0.14 : 0.23, 0.095]} color={a.shirt} />
         <SoftPart position={[0, -0.34, 0]} scale={[0.075, 0.1, 0.08]} color={a.skin} />
       </group>

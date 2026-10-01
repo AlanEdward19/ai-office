@@ -39,6 +39,9 @@ test("the signal reaches only a connected peer and dies with the last page", () 
   assert.equal(beaJoin.ok, true);
   if (!beaJoin.ok) return;
 
+  for (const [from, token] of [["peer-ada1", "token-ada"], ["peer-bea1", "token-bea"]]) {
+    assert.equal(hub.action({ from, token, action: { type: "presence", floor: "ground", x: 12, z: -14.5, yaw: 0, pitch: 0, timeZone: "UTC" } }).ok, true);
+  }
   assert.deepEqual(hub.post({ token: "token-bea", from: "peer-ada1", to: "peer-bea1", signal: offer }), {
     ok: false,
     reason: "closed",
@@ -79,10 +82,10 @@ test("the signal reaches only a connected peer and dies with the last page", () 
   const rejoined = hub.join({ id: "peer-ada1", name: "Ada", token: "token-ada" }, (event) => again.push(event));
   assert.equal(rejoined.ok, true);
   assert.equal(again.some((event) => event.type === "signal"), false);
-  assert.deepEqual(again[0], {
-    type: "roster",
-    self: "peer-ada1",
-    peers: [{ id: "peer-ada1", name: "Ada" }],
-  });
+  assert.equal(again[0]?.type, "roster");
+  if (again[0]?.type === "roster") {
+    assert.deepEqual(again[0].peers.map(p => ({id:p.id,name:p.name})), [{id:"peer-ada1",name:"Ada"}]);
+    assert.equal(again[0].peers[0].areaId,"cafe");
+  }
   assert.equal(hub.post({ token: "token-ada", from: "peer-ada1", to: "peer-bea1", signal: offer }).ok, false);
 });

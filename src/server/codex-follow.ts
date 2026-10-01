@@ -1,4 +1,5 @@
 import "server-only";
+import {recordProviderHistory} from "./agent-history";
 
 import { spawn } from "node:child_process";
 import readline from "node:readline";
@@ -76,6 +77,7 @@ export async function followCodexAppServer(options: {
       if (options.signal.aborted) break;
       const parsed = parseCodexLine(line);
       if (!parsed) continue;
+      void recordProviderHistory("openai",parsed).catch(()=>{});
       const next = onCodexMessage(opened.state, parsed);
       for (const message of next.send) write(message);
       emitStatus(next.status);

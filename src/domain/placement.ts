@@ -1,3 +1,4 @@
+import {DESK_CAPACITY,LOCAL_CAPACITY,LOCAL_POSTS,LOCAL_AREA} from "./office-map";
 import { isAgentEvent, type AgentEvent } from "./agent-event";
 import type { DeskRecord } from "./desks";
 import type { JobForm } from "./job-form";
@@ -12,33 +13,26 @@ export type PlacedAgent = {
   event: AgentEvent;
 };
 
-const CLOUD_SPOT = { x: 0.15, z: -1.6 };
 
 /** Right of the lobby floor. Local seats never share a cloud desk coordinate. */
-export const LOCAL_WING = { x: 11.15, z: 0.2 };
+export const LOCAL_WING = LOCAL_POSTS;
 
 export function localWingSlot(index: number): { x: number; z: number } {
+  if(!Number.isInteger(index)||index<0||index>=LOCAL_CAPACITY)throw new Error("Capacidade da ala local atingida (9)." );
   const col = index % 2;
   const row = Math.floor(index / 2);
-  return { x: LOCAL_WING.x + col * 2.2, z: LOCAL_WING.z + row * 2.05 };
+  return { x: LOCAL_POSTS.x + col * LOCAL_POSTS.columnGap, z: LOCAL_POSTS.z - row * LOCAL_POSTS.rowGap };
 }
 
 export function localWingPlate(): { x: number; z: number; width: number; depth: number } {
-  const origin = localWingSlot(0);
-  const across = localWingSlot(1);
-  const down = localWingSlot(2);
-  return {
-    x: (origin.x + across.x) / 2,
-    z: (origin.z + down.z) / 2,
-    width: across.x - origin.x + 2.6,
-    depth: down.z - origin.z + 2.4,
-  };
+  return {x:LOCAL_AREA.x,z:LOCAL_AREA.z,width:LOCAL_AREA.width,depth:LOCAL_AREA.depth};
 }
 
 export function deskSlot(index: number): { x: number; z: number } {
+  if(!Number.isInteger(index)||index<0||index>=DESK_CAPACITY)throw new Error("Capacidade de postos atingida (9).");
   const col = index % 3;
   const row = Math.floor(index / 3);
-  return { x: -2.2 + col * 2.35, z: 0.35 + row * 2.15 };
+  return { x: -2.2 + col * 2.9, z: -3.4 + row * 2.75 };
 }
 
 export function hireEvent(
@@ -80,7 +74,8 @@ export function bindAgents(input: {
       )?.id
     : null;
   let bound = false;
-  const placed: PlacedAgent[] = desks.map((desk, index) => {
+  const cloudReserve=observed&&!desks.some(d=>d.form.provider==="cursor")?1:0;
+  const placed: PlacedAgent[] = desks.slice(0,DESK_CAPACITY-cloudReserve).map((desk, index) => {
     const slot = deskSlot(index);
     const eligible =
       observed !== null &&
@@ -97,11 +92,10 @@ export function bindAgents(input: {
       event: takeObserved && observed ? observed : hireEvent(desk, input.owner, desk.createdAt),
     };
   });
-  if (observed && !bound) {
+  if (observed && !bound && placed.length<DESK_CAPACITY) {
     placed.push({
       id: `observed:${observed.provider}`,
-      x: CLOUD_SPOT.x,
-      z: CLOUD_SPOT.z,
+      ...deskSlot(placed.length),
       form: null,
       event: observed,
     });
@@ -143,7 +137,8 @@ export function bindLocalWing(input: {
   const placed: PlacedAgent[] = [];
   let slot = 0;
 
-  for (const desk of desks) {
+  const fallbackCount=WING_PROVIDERS.filter(p=>input.observed[p]&&isAgentEvent(input.observed[p])&&!desks.some(d=>d.form.provider===p)).length;
+  for (const desk of desks.slice(0,LOCAL_CAPACITY-fallbackCount)) {
     const provider = desk.form.provider as WingProvider;
     const candidate = input.observed[provider];
     const take =
@@ -155,6 +150,7 @@ export function bindLocalWing(input: {
     if (take) bound[provider] = true;
     const machineId = take && candidate ? candidate.machineId : input.machineId;
     if (!machineId || !machineId.trim()) continue;
+    if(slot>=LOCAL_CAPACITY)continue;
     const position = localWingSlot(slot);
     slot += 1;
     const idle: AgentEvent = {
@@ -180,6 +176,7 @@ export function bindLocalWing(input: {
     const candidate = input.observed[provider];
     if (!candidate || candidate.origin !== "local" || candidate.provider !== provider) continue;
     if (!isAgentEvent(candidate)) continue;
+    if(slot>=LOCAL_CAPACITY)continue;
     const position = localWingSlot(slot);
     slot += 1;
     placed.push({
@@ -192,4 +189,13 @@ export function bindLocalWing(input: {
   }
 
   return placed;
+}
+
+export function localWingOverflow(desks:readonly DeskRecord[],observed:Partial<Record<WingProvider,AgentEvent|null>>):number {
+ const hired=desks.filter(d=>isWingProvider(d.form.provider));
+ const unbound=WING_PROVIDERS.filter(p=>observed[p]&&isAgentEvent(observed[p])&&!hired.some(d=>d.form.provider===p)).length;
+ return Math.max(0,hired.length+unbound-LOCAL_CAPACITY);
+}
+export function cloudDeskOverflow(desks:readonly DeskRecord[],observed:AgentEvent|null):number {
+ return Math.max(0,desks.length+(observed?.origin==='cloud'&&!desks.some(d=>d.form.provider==='cursor')?1:0)-DESK_CAPACITY);
 }

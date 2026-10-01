@@ -12,3 +12,7 @@ export function commonAreas(rooms: readonly PlacedRoom[]) {
 
 /** The elevator door faces west, toward its interaction and arrival point. */
 export const ELEVATOR_DOOR_ROTATION = -Math.PI / 2;
+
+export const LOUNGE_POSITION = { x: 1.8, z: 4.4 };
+/** West-facing landing reserved through the first two metres of walking. */
+export const ELEVATOR_CORRIDOR = { minX: 3.2, maxX: 6.5, minZ: 3.2, maxZ: 4.2 };

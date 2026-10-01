@@ -1,3 +1,4 @@
+import { PROJECT_CAPACITY, projectSlot } from "./office-map";
 export type LinearProject = {
   id: string;
   name: string;
@@ -21,17 +22,7 @@ export function roomColor(projectId: string): string {
 }
 
 export function roomSlot(index: number): { x: number; z: number } {
-  const perRow = 4;
-  const roomW = 4.2;
-  const roomD = 4.6;
-  const gap = 0.35;
-  const col = index % perRow;
-  const row = Math.floor(index / perRow);
-  const rowWidth = perRow * roomW + (perRow - 1) * gap;
-  const startX = -rowWidth / 2 + roomW / 2;
-  const x = startX + col * (roomW + gap);
-  const z = -LOBBY.depth / 2 - roomD / 2 - 0.7 - row * (roomD + gap);
-  return { x, z };
+  return projectSlot(index);
 }
 
 /** Stable layout: the project id is the identity, the name is only a label. */
@@ -39,6 +30,7 @@ export function layoutRooms(projects: readonly LinearProject[]): PlacedRoom[] {
   return [...projects]
     .filter((project) => project.id.trim().length > 0)
     .sort((a, b) => a.id.localeCompare(b.id))
+    .slice(0, PROJECT_CAPACITY)
     .map((project, index) => ({
       id: project.id,
       name: project.name.trim() || "Sem nome",

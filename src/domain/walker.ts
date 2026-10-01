@@ -2,13 +2,14 @@ import { ELEVATOR, type FloorId } from "./floors";
 import { RECEPTION } from "./rooms";
 
 export type Pose = {
+  seated?:boolean;
   x: number;
   z: number;
   yaw: number;
   pitch: number;
 };
 
-export type Obstacle = { minX: number; maxX: number; minZ: number; maxZ: number };
+export type Obstacle = { minX: number; maxX: number; minZ: number; maxZ: number;seatId?:string };
 export const PLAYER_RADIUS = 0.24;
 
 export type WalkBounds = {
@@ -41,7 +42,7 @@ export type InteractTarget = {
 
 export function walkBounds(floor: FloorId): WalkBounds {
   if (floor === "hr") return { minX: -8.2, maxX: 8.6, minZ: -5.4, maxZ: 5.5 };
-  return { minX: -8.6, maxX: 15.4, minZ: -15.5, maxZ: 5.5 };
+  return { minX: -8.6, maxX: 15.4, minZ: -23.5, maxZ: 7.2 };
 }
 
 /** Step out of the elevator onto the floor you just entered. */
@@ -179,4 +180,9 @@ export function integrateWalk(
     },
     target: nextTarget,
   };
+}
+
+/** Entry barriers never trap someone already overlapping the boundary on their way out. */
+export function entryBarriers(pose: Pick<Pose, 'x' | 'z'>, areas: readonly Obstacle[]): Obstacle[] {
+  return areas.filter(a => !(pose.x > a.minX - PLAYER_RADIUS && pose.x < a.maxX + PLAYER_RADIUS && pose.z > a.minZ - PLAYER_RADIUS && pose.z < a.maxZ + PLAYER_RADIUS));
 }

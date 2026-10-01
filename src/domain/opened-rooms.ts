@@ -1,8 +1,9 @@
+import { PROJECT_CAPACITY } from "./office-map";
 import type { LinearProject } from "./rooms";
 
 export const ROOMS_STORAGE_KEY = "escritorio-de-ia.rooms";
 
-export type RoomBindError = "project_required" | "project_unknown" | "room_exists";
+export type RoomBindError = "project_required" | "project_unknown" | "room_exists" | "capacity";
 
 export function loadOpenedRooms(raw: string | null): string[] {
   if (!raw) return [];
@@ -41,6 +42,7 @@ export function bindRoom(
     return { ok: false, error: "project_unknown" };
   }
   if (opened.includes(id)) return { ok: false, error: "room_exists" };
+  if (opened.length >= PROJECT_CAPACITY) return { ok: false, error: "capacity" };
   return { ok: true, projectIds: [...opened, id] };
 }
 

@@ -69,8 +69,8 @@ export function JobFormDialog({
               setError(ERRORS[parsed.error]);
               return;
             }
-            onSubmit(parsed.form);
-            onOpenChange(false);
+            try { onSubmit(parsed.form); onOpenChange(false); }
+            catch (failure) { setError(failure instanceof Error ? failure.message : "Não foi possível reservar o posto."); }
           }}
         >
           <div className="space-y-2">

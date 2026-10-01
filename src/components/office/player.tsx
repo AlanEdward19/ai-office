@@ -1,10 +1,11 @@
 "use client";
 
+import {sitAt,seatedPose,type Sitting,type Seat} from "@/domain/seating";
 import { cameraView, type CameraMode } from "@/domain/camera";
 
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useRef, type RefObject } from "react";
-import { Plane, Raycaster, Vector2, Vector3, type Group, type Mesh } from "three";
+import { Plane, Raycaster, Vector2, Vector3, type Group, Mesh } from "three";
 
 import { type Appearance, type AvatarMotion, type Gesture } from "@/domain/character";
 import type { FloorId } from "@/domain/floors";
@@ -13,6 +14,7 @@ import {
   arrivalPose,
   avatarRotation,
   integrateWalk,
+  entryBarriers,
   nearestTarget,
   walkBounds,
   type InteractTarget,
@@ -34,6 +36,8 @@ function typingTarget(target: EventTarget | null) {
 }
 
 export function OfficePlayer({
+  restrictedAreas,
+  correction,
   appearance,
   cameraMode,
   zoom,
@@ -46,6 +50,8 @@ export function OfficePlayer({
   onNearby,
   onPose,
 }: {
+  restrictedAreas: readonly Obstacle[];
+  correction:{pose:Pose;stamp:number}|null;
   appearance: Appearance;
   cameraMode: CameraMode;
   zoom: number;
@@ -62,6 +68,7 @@ export function OfficePlayer({
   const cameraOrigin = useRef(new Vector3());
   const cameraDirection = useRef(new Vector3());
   const camera = useThree((state) => state.camera);
+  const scene = useThree((state) => state.scene);
   const gl = useThree((state) => state.gl);
   const body = useRef<Group>(null);
   const motion = useRef<AvatarMotion>({ moving: false, gesture: null, gestureStarted: 0 });
@@ -69,6 +76,7 @@ export function OfficePlayer({
   const cameraPosition = useRef(new Vector3());
   const cameraFocus = useRef(new Vector3(0, 0.7, 0));
   const pose = useRef<Pose>(LOBBY_SPAWN);
+  const sitting=useRef<Sitting|null>(null);
   const target = useRef<{ x: number; z: number } | null>(null);
   const keys = useRef(new Set<string>());
   const look = useRef({ yaw: 0, pitch: 0 });
@@ -77,6 +85,11 @@ export function OfficePlayer({
   const floorRef = useRef(floor);
   const nearKey = useRef("");
   const poseStamp = useRef(0);
+
+  useEffect(()=>{const sit=(event:Event)=>{if(!enabledRef.current)return;const seat=(event as CustomEvent<Seat>).detail;if(!seat||![seat.x,seat.z,seat.yaw].every(Number.isFinite))return;sitting.current=sitting.current?null:sitAt(pose.current,seat,[...obstacles.current,...entryBarriers(pose.current,restrictedAreas)]);target.current=null;};window.addEventListener("office:seat",sit);return()=>window.removeEventListener("office:seat",sit);},[obstacles,restrictedAreas]);
+  useEffect(() => {
+    if (correction) { sitting.current=null;pose.current = correction.pose; target.current = null; }
+  }, [correction]);
 
   useEffect(() => {
     targetsRef.current = targets;
@@ -88,6 +101,7 @@ export function OfficePlayer({
 
   useEffect(() => {
     if (floorRef.current === floor) return;
+    sitting.current=null;
     floorRef.current = floor;
     pose.current = arrivalPose();
     target.current = null;
@@ -96,6 +110,7 @@ export function OfficePlayer({
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
       if (typingTarget(event.target)) return;
+      if(event.code==="Space"&&sitting.current)event.preventDefault();
       if (event.key.startsWith("Arrow")) event.preventDefault();
       keys.current.add(event.code);
     };
@@ -148,6 +163,13 @@ export function OfficePlayer({
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
       camera.updateMatrixWorld();
       raycaster.setFromCamera(pointer, camera);
+      const intersections = raycaster.intersectObjects(scene.children, true);
+      for (const hit of intersections) {
+        for (let object = hit.object; object; object = object.parent!) {
+          if (object.userData.personId||object.userData.seat) return;
+        }
+        if (hit.object instanceof Mesh && hit.object.userData.cameraWall) break;
+      }
       const hit = raycaster.ray.intersectPlane(floorPlane, hitPoint);
       if (!hit) return;
       const bounds = walkBounds(floorRef.current);
@@ -165,13 +187,14 @@ export function OfficePlayer({
       element.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [camera, gl]);
+  }, [camera, gl, scene]);
 
   useFrame(({ clock }, dt) => {
     const held = keys.current;
     const moving = enabledRef.current;
     const keyboardForward = moving && (held.has("KeyW") || held.has("ArrowUp")) ? 1 : moving && (held.has("KeyS") || held.has("ArrowDown")) ? -1 : 0;
     const keyboardStrafe = moving && (held.has("KeyD") || (cameraMode === "isometric" && held.has("ArrowRight"))) ? 1 : moving && (held.has("KeyA") || (cameraMode === "isometric" && held.has("ArrowLeft"))) ? -1 : 0;
+    if(keyboardForward||keyboardStrafe||held.has("Space")||target.current)sitting.current=null;
     const walk = integrateWalk(
       pose.current,
       {
@@ -184,7 +207,7 @@ export function OfficePlayer({
       moving ? target.current : null,
       dt,
       walkBounds(floorRef.current),
-      obstacles.current,
+      [...obstacles.current, ...entryBarriers(pose.current, restrictedAreas)],
     );
     look.current.yaw = 0;
     look.current.pitch = 0;
@@ -200,9 +223,10 @@ export function OfficePlayer({
     pose.current = walk.pose;
     target.current = walk.target;
 
-    const yaw = walk.pose.yaw;
-    const view = cameraView(cameraMode, walk.pose, zoom);
-    cameraPosition.current.set(view.position[0], view.position[1], view.position[2]);
+    const visiblePose=sitting.current?seatedPose(sitting.current):{...walk.pose,seated:false};motion.current.seated=Boolean(sitting.current);
+    const yaw = visiblePose.yaw;
+    const view = cameraView(cameraMode, visiblePose, zoom);
+    cameraPosition.current.set(view.position[0], view.position[1]-(sitting.current ? .36 : 0), view.position[2]);
     const focus = new Vector3(view.focus[0], view.focus[1], view.focus[2]);
     if (cameraMode === "first") {
       // Eye position must follow the body exactly so movement and looking stay aligned.
@@ -225,7 +249,7 @@ export function OfficePlayer({
     camera.lookAt(cameraFocus.current);
 
     if (body.current) {
-      body.current.position.set(walk.pose.x, 0, walk.pose.z);
+      body.current.position.set(visiblePose.x, 0, visiblePose.z);
       body.current.rotation.y = avatarRotation(yaw);
     }
 
@@ -238,7 +262,7 @@ export function OfficePlayer({
     poseStamp.current += dt;
     if (poseStamp.current > 0.08) {
       poseStamp.current = 0;
-      onPose(walk.pose);
+      onPose(visiblePose);
     }
   });
 

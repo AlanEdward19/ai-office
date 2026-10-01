@@ -11,6 +11,9 @@ import {
 } from "@/domain/office-share";
 import { listLinearProjects } from "@/server/linear-client";
 
+import { meetingAreas } from "@/domain/meeting-areas";
+import { setCallAreas } from "@/server/call-channel";
+
 const COOKIE = "escritorio-sessao";
 const GLOBAL_KEY = "__escritorioDeIaOffice";
 
@@ -118,9 +121,14 @@ export function subscribeOffice(role: OfficeRole, listener: (scene: SharedScene 
 }
 
 export function publishOffice(role: OfficeRole, scene: unknown) {
-  return state().hub.publish(role, scene);
+  const result = state().hub.publish(role, scene);
+  const snapshot = state().hub.snapshot();
+  if (result.ok && snapshot) setCallAreas(meetingAreas(snapshot.rooms));
+  return result;
 }
 
 export function officeViewerCount() {
   return state().hub.viewerCount();
 }
+
+export function officeSceneSnapshot(){return state().hub.snapshot();}

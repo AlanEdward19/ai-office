@@ -1,3 +1,4 @@
+import {readRoutineVisual,type RoutineVisual} from "./agent-routines";
 import { readTimeZone } from "./office-time";
 import { isAgentEvent, type AgentEvent } from "./agent-event";
 import { presentLocalEvent } from "./local-hooks";
@@ -28,6 +29,7 @@ export type SharedScene = {
   localOffline: boolean;
   rooms: SharedRoom[];
   agents: PlacedAgent[];
+  routines?: RoutineVisual[];
 };
 
 const ROOM_CAP = 24;
@@ -111,7 +113,7 @@ export function readSharedScene(value: unknown): SharedScene | null {
     agents.push({ id, x, z, form, event, ...(clip(agent.displayName, 60) ? { displayName: clip(agent.displayName, 60) } : {}) });
   }
 
-  return { hostName, ...(readTimeZone(record.hostTimeZone) ? { hostTimeZone: readTimeZone(record.hostTimeZone) } : {}), localOffline: record.localOffline, rooms, agents };
+  return { hostName, ...(readTimeZone(record.hostTimeZone) ? { hostTimeZone: readTimeZone(record.hostTimeZone) } : {}), localOffline: record.localOffline, rooms, agents, ...(Array.isArray(record.routines) ? {routines:record.routines.slice(0,49).flatMap((r:unknown)=>{const visual=readRoutineVisual(r);return visual?[visual]:[];})} : {}) };
 }
 
 function readForm(value: unknown): PlacedAgent["form"] | undefined {
@@ -144,6 +146,7 @@ export function sceneWithoutHost(scene: SharedScene): SharedScene {
     hostName: scene.hostName,
     ...(scene.hostTimeZone ? { hostTimeZone: scene.hostTimeZone } : {}),
     localOffline: true,
+    ...(scene.routines?{routines:scene.routines.map(r=>({...r,state:r.state==='working'?'sleeping' as const:r.state}))}:{}),
     rooms: scene.rooms.map((room) => ({ ...room })),
     agents: scene.agents.map((agent) => ({
       ...agent,

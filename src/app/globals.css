@@ -124,3 +124,13 @@ kbd { display: inline-block; border: 1px solid #dce3e6; border-bottom-width: 2px
   .office-hint { display: none; }
   .office-board { width: calc(100% - 1.5rem); }
 }
+.meeting-panel { width: min(18rem, calc(100vw - 1.5rem)); max-height: calc(100dvh - 15rem); }
+.meeting-content { display: flex; flex-direction: column; gap: .5rem; }
+.meeting-invite { display: flex; flex-wrap: wrap; gap: .5rem; border: 1px solid #b8d9cf; padding: .75rem; border-radius: .8rem; background: #edf7f3; font-size: .75rem; line-height: 1.6; }
+.meeting-invite p { width: 100%; }
+.meeting-people summary { display: flex; align-items: center; gap: .4rem; font-size: .75rem; cursor: pointer; padding: .5rem 0; }
+.meeting-people button { display: flex; flex-direction: column; text-align: left; width: 100%; padding: .65rem; border-radius: .6rem; gap: .2rem; font-size: .75rem; overflow-wrap: anywhere; }
+.meeting-people button:hover { background: #e8f1ef; }
+.meeting-people button span { color: #64748b; font-size: .65rem; }
+.call-collapsed .meeting-content { display: none; }
+@media (max-width: 640px) { .meeting-panel { width: min(15rem, calc(100vw - 1.5rem)); top: 6.5rem; max-height: calc(100dvh - 15rem); } .meeting-panel.call-collapsed { width: 10rem; } }

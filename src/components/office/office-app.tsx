@@ -18,7 +18,8 @@ import { issuesForProject, mergeRoomIssues, type RoomIssue } from "@/domain/issu
 import type { JobForm } from "@/domain/job-form";
 import { readSharedScene, type OfficeRole, type SharedScene } from "@/domain/office-share";
 import { projectsWithoutRooms, roomsFromBindings } from "@/domain/opened-rooms";
-import { bindAgents, bindLocalWing, type PlacedAgent } from "@/domain/placement";
+import { admitHire } from "@/domain/hire-admission";
+import { bindAgents, bindLocalWing, localWingOverflow, cloudDeskOverflow, type PlacedAgent } from "@/domain/placement";
 import { isProviderId, PROVIDER_LABELS, type ProviderId } from "@/domain/providers";
 import { layoutRooms, type LinearProject, type PlacedRoom } from "@/domain/rooms";
 import { LOBBY_SPAWN, type InteractTarget, type Pose } from "@/domain/walker";
@@ -31,11 +32,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { BoardPanel, type BoardState } from "./board-panel";
-import { OfficeCall } from "./office-call";
+import { type PresenceRoster, OfficeCall } from "./office-call";
 import { deskStore } from "./desk-store";
 import { dispatchStore } from "./dispatch-store";
 import { DEFAULT_APPEARANCE, type Gesture } from "@/domain/character";
 import { SceneBoundary } from "./scene-boundary";
+import {useOfficeRoutines} from "./use-office-routines";
+import {createAgentRoutines,type RoutineVisual,type RoutineResult} from "@/domain/agent-routines";
 import { AgentPanel } from "./agent-panel";
 import { agentProfileStore } from "./agent-profile-store";
 import { OfficeHud } from "./office-hud";
@@ -131,6 +134,7 @@ export function OfficeApp() {
   const [roomDialogOpen, setRoomDialogOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [formSession, setFormSession] = useState(0);
+  const confirmedHire=useRef(-1);
   const [providers, setProviders] = useState<HiringProvider[]>([]);
   const [providersLoading, setProvidersLoading] = useState(false);
   const [providersError, setProvidersError] = useState<string | null>(null);
@@ -140,9 +144,20 @@ export function OfficeApp() {
   const [creatingCard, setCreatingCard] = useState(false);
   const [boardMessage, setBoardMessage] = useState<string | null>(null);
   const [carried, setCarried] = useState<RoomIssue | null>(null);
+  const [selectedTab,setSelectedTab]=useState<"activity"|"messages"|"history">("activity");
+  const [routineVisuals,setRoutineVisuals]=useState<RoutineVisual[]>([]);
+  const [routineNotice,setRoutineNotice]=useState<string|null>(null);
+  const [newHire,setNewHire]=useState<{id:string;stamp:number}|null>(null);
+  const routineEngine=useMemo(()=>createAgentRoutines(),[]);
   const [selectedDeskId, setSelectedDeskId] = useState<string | null>(null);
   const [nearby, setNearby] = useState<InteractTarget | null>(null);
   const [pose, setPose] = useState<Pose>(LOBBY_SPAWN);
+  const [humanPresence, setHumanPresence] = useState<PresenceRoster | null>(null);
+  const [inviteTarget, setInviteTarget] = useState<{id:string;stamp:number}|null>(null);
+  const [correction, setCorrection] = useState<{pose:Pose;stamp:number}|null>(null);
+  const clearInvite = useCallback(() => setInviteTarget(null), []);
+  const correctPose = useCallback((next:Pose) => { setPose(next); setCorrection({pose:next,stamp:Date.now()}); }, []);
+  const invitePerson = useCallback((id:string) => setInviteTarget({id,stamp:Date.now()}), []);
   const dispatchSnapshot = useSyncExternalStore(
     dispatchStore.subscribe,
     dispatchStore.getSnapshot,
@@ -159,6 +174,11 @@ export function OfficeApp() {
   );
   const openedRoomIds = useMemo(() => roomStore.idsFrom(roomSnapshot), [roomSnapshot]);
   const host = session?.role === "host";
+  const routineControl=useOfficeRoutines(host,floor);
+  const onRoutines=useCallback((visuals:RoutineVisual[])=>setRoutineVisuals(visuals),[]);
+  const onRoutineResult=useCallback((result:RoutineResult)=>{setRoutineNotice(result.message);if(result.status==='arrived'&&result.target==='user'){setSelectedTab('messages');setSelectedDeskId(result.agentId);}},[]);
+  const approachAgent=async(id:string,targetId:string|null=null)=>{if(await routineControl.approach(id,targetId)){setSelectedDeskId(null);setRoutineNotice(targetId?'Agente a caminho do interlocutor…':'Agente a caminho. Você pode continuar caminhando.');}};
+
   const onNearby = useCallback((target: InteractTarget | null) => {
     setNearby(target);
   }, []);
@@ -208,124 +228,37 @@ export function OfficeApp() {
     return () => controller.abort();
   }, []);
 
-  useEffect(() => {
-    if (!session) return;
-    const source = new EventSource("/api/office");
-    const onSnapshot = (event: Event) => {
-      if (session.role === "colleague") {
-        setShared(readSharedScene(parsePayload((event as MessageEvent).data)));
-      }
+  const onOfficeEvent = useCallback((channel:string, parsed:unknown) => {
+    if (channel === "snapshot") {
+      if (session?.role === "colleague") setShared(readSharedScene(parsed));
       setLinked(true);
-    };
-    source.addEventListener("snapshot", onSnapshot);
-    source.onerror = () => setLinked(false);
-    return () => {
-      source.removeEventListener("snapshot", onSnapshot);
-      source.close();
-    };
-  }, [session]);
-
-  useEffect(() => {
-    if (!host) return;
-    const source = new EventSource("/api/observe");
-    const onAgent = (event: Event) => {
-      const parsed = parsePayload((event as MessageEvent).data);
-      if (isAgentEvent(parsed)) setObserved(parsed);
-    };
-    const onNotice = (event: Event) => {
-      const parsed = parsePayload((event as MessageEvent).data);
-      if (
-        parsed &&
-        typeof parsed === "object" &&
-        "message" in parsed &&
-        typeof parsed.message === "string"
-      ) {
-        setNotice(parsed.message);
-      }
-    };
-    source.addEventListener("agent", onAgent);
-    source.addEventListener("notice", onNotice);
-    source.onerror = () => setNotice("A ligação com o observador caiu. A página tenta de novo.");
-    return () => {
-      source.removeEventListener("agent", onAgent);
-      source.removeEventListener("notice", onNotice);
-      source.close();
-    };
-  }, [host]);
-
-  useEffect(() => {
-    if (!host) return;
-    const source = new EventSource("/api/local");
-    let closed = false;
-    const dropWorking = () => {
-      localOnlineRef.current = false;
-      setLocalLink("offline");
-      setLocalEvents((current) => ({
-        cursor: current.cursor ? presentLocalEvent(current.cursor, false) : null,
-        anthropic: current.anthropic ? presentLocalEvent(current.anthropic, false) : null,
-        openai: current.openai ? presentLocalEvent(current.openai, false) : null,
-      }));
-    };
-    const onAgent = (event: Event) => {
-      const parsed = parsePayload((event as MessageEvent).data);
-      if (!isAgentEvent(parsed) || parsed.origin !== "local") return;
+    } else if (channel === "cloud-agent" && isAgentEvent(parsed)) {
+      setObserved(parsed);
+    } else if (channel === "local-agent" && isAgentEvent(parsed) && parsed.origin === "local") {
       const provider = parsed.provider;
-      if (provider !== "cursor" && provider !== "anthropic" && provider !== "openai") return;
-      setLocalEvents((current) => {
-        const prev = current[provider];
-        if (
-          prev &&
-          prev.status === parsed.status &&
-          prev.owner === parsed.owner &&
-          prev.machineId === parsed.machineId
-        ) {
-          return current;
-        }
+      if (provider === "cursor" || provider === "anthropic" || provider === "openai") setLocalEvents(current => {
+        const previous = current[provider];
+        if (previous?.status === parsed.status && previous.owner === parsed.owner && previous.machineId === parsed.machineId) return current;
         return { ...current, [provider]: parsed };
       });
-    };
-    const onPresence = (event: Event) => {
-      const parsed = parsePayload((event as MessageEvent).data);
-      if (!isMachinePresence(parsed)) return;
+    } else if (channel === "local-presence" && isMachinePresence(parsed)) {
       localOnlineRef.current = parsed.online;
       setPresence(parsed);
       setLocalLink(parsed.online ? "online" : "offline");
-      if (!parsed.online) {
-        setLocalEvents((current) => ({
-          cursor: current.cursor ? presentLocalEvent(current.cursor, false) : null,
-          anthropic: current.anthropic ? presentLocalEvent(current.anthropic, false) : null,
-          openai: current.openai ? presentLocalEvent(current.openai, false) : null,
-        }));
-      }
-    };
-    const onNotice = (event: Event) => {
-      const parsed = parsePayload((event as MessageEvent).data);
-      if (
-        parsed &&
-        typeof parsed === "object" &&
-        "message" in parsed &&
-        typeof parsed.message === "string"
-      ) {
-        setLocalNotice(parsed.message);
-      }
-    };
-    source.addEventListener("agent", onAgent);
-    source.addEventListener("presence", onPresence);
-    source.addEventListener("notice", onNotice);
-    source.onerror = () => {
-      if (closed) return;
-      dropWorking();
-      setLocalNotice("A ligação com a máquina local caiu. O avatar não fica trabalhando.");
-    };
-    return () => {
-      closed = true;
-      localOnlineRef.current = false;
-      source.removeEventListener("agent", onAgent);
-      source.removeEventListener("presence", onPresence);
-      source.removeEventListener("notice", onNotice);
-      source.close();
-    };
-  }, [host]);
+      if (!parsed.online) setLocalEvents(current => ({cursor:current.cursor ? presentLocalEvent(current.cursor,false):null, anthropic:current.anthropic ? presentLocalEvent(current.anthropic,false):null,openai:current.openai ? presentLocalEvent(current.openai,false):null}));
+    } else if (parsed && typeof parsed === "object" && "message" in parsed && typeof parsed.message === "string") {
+      if (channel === "local-notice") setLocalNotice(parsed.message);
+      if (channel === "cloud-notice") setNotice(parsed.message);
+    }
+  }, [session?.role]);
+  const onOfficeConnected = useCallback((connected:boolean) => {
+    setLinked(connected);
+    if (!connected) {
+      localOnlineRef.current=false;
+      setLocalLink("offline");
+      setLocalEvents(current => ({cursor:current.cursor ? presentLocalEvent(current.cursor,false):null, anthropic:current.anthropic ? presentLocalEvent(current.anthropic,false):null,openai:current.openai ? presentLocalEvent(current.openai,false):null}));
+    }
+  }, []);
 
   useEffect(() => {
     if (!host) return;
@@ -458,6 +391,7 @@ export function OfficeApp() {
       }),
     [desks, localEvents, presence, localLink],
   );
+  const overflow=localWingOverflow(desks,localEvents)+cloudDeskOverflow(desks,observed);
   const agents = useMemo(() => [...cloudAgents, ...localAgents].map(a => ({ ...a, displayName: profiles.find(p => p.agentId === a.id)?.name })), [cloudAgents, localAgents, profiles]);
   const viewRooms: PlacedRoom[] = useMemo(
     () => (host ? rooms : (shared?.rooms ?? [])),
@@ -482,6 +416,7 @@ export function OfficeApp() {
         localOffline: localLink !== "online",
         rooms: rooms.map((room) => ({ id: room.id, name: room.name, x: room.x, z: room.z })),
         agents,
+        routines:routineVisuals,
       }),
     })
       .then(async (response) => {
@@ -496,7 +431,7 @@ export function OfficeApp() {
         }
       })
       .catch(() => undefined);
-  }, [host, linked, session, localLink, rooms, agents, shareBump]);
+  }, [host, linked, session, localLink, rooms, agents, routineVisuals, shareBump]);
 
   useEffect(() => {
     roomsForPose.current = viewRooms;
@@ -511,7 +446,10 @@ export function OfficeApp() {
   }
 
   function saveDesk(form: JobForm) {
-    deskStore.add(form);
+    const desk=admitHire({form,session:formSession,confirmed:confirmedHire.current,desks,localEvents,observed},deskStore.add);
+    confirmedHire.current=formSession;
+    setNewHire({id:desk.id,stamp:Date.now()});
+    setRoutineNotice("RH está trazendo a mesa e a cadeira para o novo posto.");
     setFloor("ground");
     setOpenRoomId(null);
   }
@@ -674,7 +612,7 @@ export function OfficeApp() {
     }
     if (nearby.kind === "desk") {
       if (host && carried) void finishDrop(carried, nearby.id);
-      else setSelectedDeskId(nearby.id);
+      else {setSelectedTab(viewAgents.find(a=>a.id===nearby.id)?.event.origin==="local"?"history":"activity");setSelectedDeskId(nearby.id);}
       return;
     }
     if (!host) return;
@@ -734,7 +672,11 @@ export function OfficeApp() {
     <main className="office-shell relative h-dvh overflow-hidden bg-[#dce7e4] text-slate-700" data-role={session?.role ?? "signed-out"}>
       <div className="absolute inset-0">
         <SceneBoundary><OfficeCanvas
+          routineEngine={host?routineEngine:undefined} routineVisuals={host?routineVisuals:shared?.routines} routineCommands={routineControl.commands} idleMs={routineControl.idleMs} host={host} userPose={pose} newHire={newHire} onRoutines={onRoutines} onRoutineResult={onRoutineResult} onAgent={id=>{setSelectedTab("history");setSelectedDeskId(id);}}
           agentTimeZone={host ? Intl.DateTimeFormat().resolvedOptions().timeZone : shared?.hostTimeZone}
+          presence={humanPresence}
+          correction={correction}
+          onPerson={invitePerson}
           appearance={appearance}
           cameraMode={cameraMode}
           zoom={zoom}
@@ -757,7 +699,7 @@ export function OfficeApp() {
         <span className="text-lg font-semibold tracking-tight">Escritório de IA</span>
         <span className="mt-1 block text-[10px] tracking-[0.14em] text-teal-700 uppercase">
           {FLOOR_LABELS[floor]}
-          {session?.role === "colleague" ? " · só olhando" : ""}
+          {session?.role === "colleague" ? " · colega" : ""}
         </span>
       </p>
       <p
@@ -837,7 +779,7 @@ export function OfficeApp() {
           Clique para explorar · WASD para andar · E para interagir
         </p>
       ) : null}
-      {session ? <OfficeCall /> : null}
+      {session ? <OfficeCall onEvent={onOfficeEvent} onConnected={onOfficeConnected} pose={pose} floor={floor} host={host} onRoster={setHumanPresence} onCorrection={correctPose} inviteTarget={inviteTarget} onClearInvite={clearInvite} /> : null}
       {sessionReady && !session ? (
         <SignInCard
           machineName={machineName}
@@ -849,15 +791,19 @@ export function OfficeApp() {
           onColleague={() => void signIn("colleague", colleagueName)}
         />
       ) : null}
-      {session && <OfficeHud onCharacter={() => setCharacterOpen(true)} onGesture={kind => setGesture({kind, stamp: Date.now()})} cameraMode={cameraMode} onCamera={setCameraMode} zoom={zoom} onZoom={setZoom} pose={pose} floor={floor} rooms={viewRooms} agents={viewAgents} />}
+      {session && <OfficeHud onCharacter={() => setCharacterOpen(true)} onGesture={kind => setGesture({kind, stamp: Date.now()})} cameraMode={cameraMode} onCamera={setCameraMode} zoom={zoom} onZoom={setZoom} presence={humanPresence} pose={pose} floor={floor} rooms={viewRooms} agents={viewAgents} />}
 
-      {selectedDesk && <AgentPanel key={selectedDesk.id} agent={selectedDesk} name={selectedDesk.displayName} host={host} offline={viewOffline} dispatches={dispatches.filter(d => d.deskId === selectedDesk.id)} rooms={viewRooms} onClose={() => setSelectedDeskId(null)} onBoard={id => { setSelectedDeskId(null); openRoom(id); }} onAssign={carried && currentRoom ? async () => { await finishDrop(carried, selectedDesk.id); } : undefined} onHire={() => { setSelectedDeskId(null); openForm(); }} />}
+      {host && overflow>0&&<p role="alert" className="absolute top-28 left-4 z-20 max-w-sm rounded-xl bg-amber-50 p-3 text-xs text-amber-900">{overflow} postos excedem a capacidade visual. O trabalho real continua observado; a circulação permanece livre.</p>}
+      {host && <div className="absolute bottom-24 left-4 z-20 max-w-sm rounded-2xl border border-white/80 bg-white/90 p-3 text-sm shadow-sm backdrop-blur"><label className="flex flex-wrap items-center gap-2">Saída após ociosidade<select aria-label="Prazo de saída dos agentes" className="rounded-lg border border-slate-200 bg-white p-2 text-xs" value={routineControl.idleMs} onChange={event=>void routineControl.configure(Number(event.target.value))}>{[60000,300000,600000,900000].map(ms=><option key={ms} value={ms}>{ms/60000} min</option>)}</select></label>{(routineNotice||routineControl.error)&&<p role={routineControl.error?'alert':'status'} className="mt-2 text-xs text-slate-600">{routineControl.error??routineNotice}</p>}{routineControl.commands.filter(c=>c.type==='approach').map(c=><button key={c.agentId} className="mt-2 mr-3 text-xs underline" onClick={()=>void routineControl.cancel(c.agentId)}>Cancelar encontro</button>)}</div>}
+      {session&&<p className="pointer-events-none absolute bottom-3 left-4 z-10 rounded-lg bg-white/85 px-3 py-2 text-xs text-slate-600">Clique em uma cadeira próxima para sentar · WASD/Espaço para levantar · Clique no agente para ver o histórico</p>}
+      {selectedDesk && <AgentPanel key={`${selectedDesk.id}:${selectedTab}`} initialTab={selectedTab} onApproach={()=>void approachAgent(selectedDesk.id)} onMeeting={id=>void approachAgent(selectedDesk.id,id)} colleagues={viewAgents.filter(a=>a.id!==selectedDesk.id)} agent={selectedDesk} name={selectedDesk.displayName} host={host} offline={viewOffline} dispatches={dispatches.filter(d => d.deskId === selectedDesk.id)} rooms={viewRooms} onClose={() => {void routineControl.cancel(selectedDesk.id);setSelectedDeskId(null);}} onBoard={id => { setSelectedDeskId(null); openRoom(id); }} onAssign={carried && currentRoom ? async () => { await finishDrop(carried, selectedDesk.id); } : undefined} onHire={() => { setSelectedDeskId(null); openForm(); }} />}
       <CharacterCreator open={characterOpen} onOpenChange={setCharacterOpen} appearance={appearance} onChange={setAppearance} />
       <OpenRoomDialog
         open={roomDialogOpen}
         onOpenChange={setRoomDialogOpen}
         projects={unboundProjects}
         emptyMessage={
+          rooms.length >= 8 ? "Capacidade atingida: oito salas. Os corredores devem permanecer livres." :
           projectsState.status === "ready" && unboundProjects.length === 0
             ? projects.length === 0
               ? "Nenhum projeto no Linear. Uma sala não abre sem projeto."
@@ -900,7 +846,7 @@ function promptFor(
   }
   if (nearby.kind === "desk") {
     if (carrying && host) return { label: "Soltar card nesta mesa", enabled: true };
-    return { label: host ? "Ver agente" : "Ver agente · só olhando", enabled: !carrying };
+    return { label: host ? "Ver agente" : "Ver agente · colega", enabled: !carrying };
   }
   if (nearby.kind === "reception") {
     return host
@@ -1015,12 +961,4 @@ function SignInCard({
       </section>
     </div>
   );
-}
-
-function parsePayload(raw: string): unknown {
-  try {
-    return JSON.parse(raw) as unknown;
-  } catch {
-    return null;
-  }
 }

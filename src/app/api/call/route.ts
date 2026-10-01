@@ -1,6 +1,9 @@
+import { openLocalStream } from "@/server/local-stream";
+import { openObserverStream } from "@/server/observe-stream";
+import { callCommandResponse, callStreamResponse } from "@/domain/call-http";
 import { type CallDownlink } from "@/domain/call";
-import { findSession } from "@/server/office-channel";
-import { joinCall, postCall } from "@/server/call-channel";
+import { findSession, subscribeOffice } from "@/server/office-channel";
+import { actCall, joinCall, postCall } from "@/server/call-channel";
 
 export const dynamic = "force-dynamic";
 
@@ -9,16 +12,23 @@ function sse(event: string, data: unknown) {
 }
 
 export function GET(request: Request) {
-  const session = findSession(request);
-  if (!session) return Response.json({ error: "signed_out" }, { status: 401 });
-  const peer = new URL(request.url).searchParams.get("peer") ?? "";
+  return callStreamResponse(request, findSession(request), (peer, session) => openCallStream(request, peer, session));
+}
+
+function openCallStream(request: Request, peer: string, session: NonNullable<ReturnType<typeof findSession>>) {
   const encoder = new TextEncoder();
   let leave = () => {};
+  let leaveOffice = () => {};
+  const observers = new AbortController();
+  const readers = new Set<ReadableStreamDefaultReader<Uint8Array>>();
   let left = false;
   const drop = () => {
     if (left) return;
     left = true;
     leave();
+    leaveOffice();
+    observers.abort();
+    for (const reader of readers) void reader.cancel().catch(() => undefined);
   };
 
   const stream = new ReadableStream({
@@ -30,8 +40,31 @@ export function GET(request: Request) {
           drop();
         }
       };
-      const joined = joinCall({ id: peer, name: session.name, token: session.token }, send);
+      const forward = async (response: Response | Promise<Response>, prefix: string) => {
+        const stream = (await response).body;
+        if (!stream) return;
+        const reader = stream.getReader();
+        readers.add(reader);
+        const decoder = new TextDecoder();
+        try {
+          while (!left) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            controller.enqueue(encoder.encode(decoder.decode(chunk.value, { stream: true }).replace(/^event: /gm, `event: ${prefix}`)));
+          }
+        } catch {
+          if (!left) {
+            try { controller.enqueue(encoder.encode(sse(`${prefix}notice`, { message: "O observador reconectará com a página." }))); }
+            catch { drop(); }
+          }
+        } finally { readers.delete(reader); }
+      };
+      leaveOffice = subscribeOffice(session.role, scene => {
+        try { controller.enqueue(encoder.encode(sse("snapshot", scene))); } catch { drop(); }
+      });
+      const joined = joinCall({ id: peer, name: session.name, token: session.token, host: session.role === "host" }, send);
       if (!joined.ok) {
+        drop();
         try {
           controller.enqueue(encoder.encode(sse("notice", { message: "A chamada não abriu." })));
           controller.close();
@@ -41,6 +74,11 @@ export function GET(request: Request) {
         return;
       }
       leave = joined.leave;
+      if (session.role === "host") {
+        const observerRequest = new Request(request.url, { headers: request.headers, signal: observers.signal });
+        void forward(openLocalStream(observerRequest), "local-");
+        void forward(openObserverStream(observerRequest), "cloud-");
+      }
       const abort = () => {
         drop();
         try {
@@ -50,6 +88,7 @@ export function GET(request: Request) {
         }
       };
       request.signal.addEventListener("abort", abort, { once: true });
+      if (request.signal.aborted) abort();
     },
     cancel() {
       drop();
@@ -67,20 +106,7 @@ export function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const session = findSession(request);
-  if (!session) return Response.json({ error: "signed_out" }, { status: 401 });
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return Response.json({ error: "invalid" }, { status: 400 });
-  }
-  const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-  const from = typeof record.from === "string" ? record.from : "";
-  const to = typeof record.to === "string" ? record.to : "";
-  const result = postCall({ token: session.token, from, to, signal: record.signal });
-  if (!result.ok) {
-    return Response.json({ error: result.reason }, { status: result.reason === "invalid" ? 400 : 409 });
-  }
-  return Response.json({ ok: true });
+  return callCommandResponse(request, findSession(request), input => input.action === undefined
+    ? postCall(input)
+    : actCall(input));
 }

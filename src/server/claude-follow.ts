@@ -1,4 +1,5 @@
 import "server-only";
+import {recordProviderHistory} from "./agent-history";
 
 import { spawn } from "node:child_process";
 
@@ -74,7 +75,9 @@ async function readClaudeAgents(bin: string, signal: AbortSignal) {
   if (signal.aborted) return null;
   const output = await capture(bin, ["agents", "--json"], signal);
   if (output === null) return null;
-  const listed = statusFromClaudeAgentList(parseClaudeAgentsOutput(output));
+  const parsed = parseClaudeAgentsOutput(output);
+  void recordProviderHistory("anthropic",parsed).catch(()=>{});
+  const listed = statusFromClaudeAgentList(parsed);
   return listed.ok ? listed : null;
 }
 

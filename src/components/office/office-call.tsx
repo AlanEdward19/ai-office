@@ -1,366 +1,156 @@
 "use client";
-
-import { Mic, MicOff, Video, VideoOff, ChevronDown, ChevronUp } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-
-import { callInitiator, isPeerId, parseCallSignal, type CallPeer, type CallSignal } from "@/domain/call";
-import { Button } from "@/components/ui/button";
-
-type RemoteTile = {
-  id: string;
-  name: string;
-  stream: MediaStream | null;
-  audio: boolean;
-  video: boolean;
-};
-
-type PeerLink = {
-  pc: RTCPeerConnection;
-  queued: RTCIceCandidateInit[];
-};
-
-/**
- * Direct WebRTC between whoever has this page open.
- * The dev server only forwards the signal while those pages stay connected.
- */
-export function OfficeCall() {
-  const [collapsed, setCollapsed] = useState(true);
-  const [audioOn, setAudioOn] = useState(true);
-  const [videoOn, setVideoOn] = useState(true);
-  const [remotes, setRemotes] = useState<RemoteTile[]>([]);
-  const [hint, setHint] = useState("Abrindo câmera e microfone…");
-  const [ready, setReady] = useState(false);
-  const audioRef = useRef(true);
-  const videoRef = useRef(true);
-  const selfRef = useRef("");
-  const localStream = useRef<MediaStream | null>(null);
-  const localVideo = useRef<HTMLVideoElement>(null);
-  const links = useRef(new Map<string, PeerLink>());
-
-  useEffect(() => {
-    const self = crypto.randomUUID();
-    selfRef.current = self;
-    let closed = false;
-    let source: EventSource | null = null;
-    const linksAtStart = links.current;
-
-    const postSignal = async (to: string, signal: CallSignal) => {
-      if (closed) return;
-      await fetch("/api/call", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ from: self, to, signal }),
-      }).catch(() => undefined);
-    };
-
-    const announceMedia = () => {
-      const signal: CallSignal = { type: "media", audio: audioRef.current, video: videoRef.current };
-      for (const id of linksAtStart.keys()) void postSignal(id, signal);
-    };
-
-    const flushIce = async (link: PeerLink) => {
-      if (!link.pc.remoteDescription) return;
-      const queued = link.queued.splice(0);
-      for (const candidate of queued) {
-        await link.pc.addIceCandidate(candidate).catch(() => undefined);
-      }
-    };
-
-    const createLink = (remoteId: string) => {
-      const existing = linksAtStart.get(remoteId);
-      if (existing) return existing;
-      const pc = new RTCPeerConnection({ iceServers: [] });
-      const stream = localStream.current;
-      if (stream) {
-        for (const track of stream.getTracks()) pc.addTrack(track, stream);
-      }
-      const link: PeerLink = { pc, queued: [] };
-      linksAtStart.set(remoteId, link);
-      pc.onicecandidate = (event) => {
-        if (!event.candidate || closed) return;
-        void postSignal(remoteId, {
-          type: "ice",
-          candidate: event.candidate.candidate,
-          sdpMid: event.candidate.sdpMid,
-          sdpMLineIndex: event.candidate.sdpMLineIndex,
-        });
-      };
-      pc.ontrack = (event) => {
-        if (closed) return;
-        const [first] = event.streams;
-        const streamForTile = first ?? new MediaStream([event.track]);
-        setRemotes((current) => {
-          const existing = current.find((tile) => tile.id === remoteId);
-          if (!existing) {
-            return [
-              ...current,
-              { id: remoteId, name: remoteId, stream: streamForTile, audio: true, video: true },
-            ];
-          }
-          return current.map((tile) => (tile.id === remoteId ? { ...tile, stream: streamForTile } : tile));
-        });
-      };
-      return link;
-    };
-
-    const makeOffer = async (remoteId: string) => {
-      const link = linksAtStart.get(remoteId) ?? createLink(remoteId);
-      try {
-        const offer = await link.pc.createOffer();
-        if (closed) return;
-        await link.pc.setLocalDescription(offer);
-      } catch {
-        return;
-      }
-      const sdp = link.pc.localDescription?.sdp;
-      if (!sdp) return;
-      await postSignal(remoteId, { type: "offer", sdp });
-    };
-
-    const onRoster = (peers: CallPeer[]) => {
-      const others = peers.filter((peer) => peer.id !== self);
-      const live = new Set(others.map((peer) => peer.id));
-      for (const [id, link] of linksAtStart) {
-        if (live.has(id)) continue;
-        link.pc.close();
-        linksAtStart.delete(id);
-      }
-      setRemotes((current) =>
-        others.map((peer) => {
-          const existing = current.find((tile) => tile.id === peer.id);
-          return (
-            existing ?? { id: peer.id, name: peer.name, stream: null, audio: true, video: true }
-          );
-        }),
-      );
-      for (const peer of others) {
-        if (linksAtStart.has(peer.id)) continue;
-        createLink(peer.id);
-        if (callInitiator(self, peer.id)) void makeOffer(peer.id);
-      }
-      announceMedia();
-    };
-
-    const onSignal = async (from: string, signal: CallSignal) => {
-      if (signal.type === "media") {
-        setRemotes((current) => {
-          const existing = current.find((tile) => tile.id === from);
-          if (!existing) {
-            return [...current, { id: from, name: from, stream: null, audio: signal.audio, video: signal.video }];
-          }
-          return current.map((tile) =>
-            tile.id === from ? { ...tile, audio: signal.audio, video: signal.video } : tile,
-          );
-        });
-        return;
-      }
-      const link = linksAtStart.get(from) ?? createLink(from);
-      try {
-        if (signal.type === "offer") {
-          await link.pc.setRemoteDescription({ type: "offer", sdp: signal.sdp });
-          await flushIce(link);
-          if (closed) return;
-          const answer = await link.pc.createAnswer();
-          await link.pc.setLocalDescription(answer);
-          const sdp = link.pc.localDescription?.sdp;
-          if (sdp) await postSignal(from, { type: "answer", sdp });
-          return;
-        }
-        if (signal.type === "answer") {
-          await link.pc.setRemoteDescription({ type: "answer", sdp: signal.sdp });
-          await flushIce(link);
-          return;
-        }
-      } catch {
-        return;
-      }
-      const candidate: RTCIceCandidateInit = {
-        candidate: signal.candidate,
-        sdpMid: signal.sdpMid,
-        sdpMLineIndex: signal.sdpMLineIndex,
-      };
-      if (!link.pc.remoteDescription) {
-        link.queued.push(candidate);
-        return;
-      }
-      await link.pc.addIceCandidate(candidate).catch(() => undefined);
-    };
-
-    const stop = () => {
-      closed = true;
-      source?.close();
-      source = null;
-      for (const link of linksAtStart.values()) link.pc.close();
-      linksAtStart.clear();
-      localStream.current?.getTracks().forEach((track) => track.stop());
-      localStream.current = null;
-      if (localVideo.current) localVideo.current.srcObject = null;
-    };
-
-    void (async () => {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setHint("Este navegador não abriu câmera nem microfone.");
-        return;
-      }
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true },
-          video: true,
-        });
-        if (closed) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
-        localStream.current = stream;
-        if (localVideo.current) localVideo.current.srcObject = stream;
-        setReady(true);
-        setHint("");
-      } catch {
-        if (!closed) setHint("O navegador não liberou câmera e microfone.");
-        return;
-      }
-
-      source = new EventSource(`/api/call?peer=${encodeURIComponent(self)}`);
-      if (closed) {
-        source.close();
-        return;
-      }
-      source.addEventListener("roster", (event) => {
-        const parsed = parsePayload((event as MessageEvent).data);
-        if (!parsed || parsed.type !== "roster" || !Array.isArray(parsed.peers)) return;
-        const peers = parsed.peers.flatMap((peer) => {
-          if (!peer || typeof peer !== "object") return [];
-          const record = peer as Record<string, unknown>;
-          if (typeof record.id !== "string" || !isPeerId(record.id)) return [];
-          const name = typeof record.name === "string" ? record.name : "";
-          return name ? [{ id: record.id, name }] : [];
-        });
-        onRoster(peers);
-      });
-      source.addEventListener("signal", (event) => {
-        const parsed = parsePayload((event as MessageEvent).data);
-        if (!parsed || parsed.type !== "signal" || typeof parsed.from !== "string") return;
-        const signal = parseCallSignal(parsed.signal);
-        if (!signal) return;
-        void onSignal(parsed.from, signal);
-      });
-      source.onerror = () => {
-        if (!closed) setHint("A chamada reconecta enquanto a página estiver aberta.");
-      };
-    })();
-
-    return () => {
-      stop();
-      setRemotes([]);
-      setReady(false);
-    };
-  }, []);
-
-  function toggleAudio() {
-    const next = !audioRef.current;
-    audioRef.current = next;
-    setAudioOn(next);
-    for (const track of localStream.current?.getAudioTracks() ?? []) track.enabled = next;
-    const signal: CallSignal = { type: "media", audio: next, video: videoRef.current };
-    for (const id of links.current.keys()) void sendMedia(selfRef.current, id, signal);
-  }
-
-  function toggleVideo() {
-    const next = !videoRef.current;
-    videoRef.current = next;
-    setVideoOn(next);
-    for (const track of localStream.current?.getVideoTracks() ?? []) track.enabled = next;
-    const signal: CallSignal = { type: "media", audio: audioRef.current, video: next };
-    for (const id of links.current.keys()) void sendMedia(selfRef.current, id, signal);
-  }
-
-  return (
-    <section
-      className={`call-panel absolute top-24 left-4 z-20 rounded-2xl border border-white/70 bg-white/85 text-slate-700 shadow-sm backdrop-blur ${collapsed ? "call-collapsed" : ""}`}
-      data-testid="call-panel"
-      data-audio={audioOn ? "on" : "off"}
-      data-video={videoOn ? "on" : "off"}
-    >
-      <button type="button" className="call-heading" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed} aria-label={collapsed ? "Expandir chamada" : "Recolher chamada"}><span>Chamada direta</span>{collapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}</button>
-      <video
-        ref={localVideo}
-        data-testid="call-local"
-        data-audio={audioOn ? "on" : "off"}
-        data-video={videoOn ? "on" : "off"}
-        autoPlay
-        muted
-        playsInline
-        className="mt-1 h-16 w-full rounded-xl bg-black object-cover"
-      />
-      <p className="mt-2 px-1 text-xs leading-5 break-words">Você{videoOn ? "" : " · câmera desligada"}{audioOn ? "" : " · mudo"}</p>
-      {remotes.length === 0 ? (
-        <p className="mt-3 px-1 text-xs leading-5 text-[#5c5148]" data-testid="call-waiting">
-          {ready ? "Só você nesta chamada." : hint || "Abrindo câmera e microfone…"}
-        </p>
-      ) : (
-        remotes.map((tile) => <RemoteVideo key={tile.id} tile={tile} />)
-      )}
-      {hint && remotes.length > 0 ? <p className="mt-1 px-1 text-xs text-[#9c4221]">{hint}</p> : null}
-      <div className="call-controls mt-3 grid grid-cols-2 gap-2">
-        <Button type="button" variant="outline" size="sm" data-testid="call-mic" aria-label={audioOn ? "Desligar microfone" : "Ligar microfone"} title={audioOn ? "Desligar microfone" : "Ligar microfone"} aria-pressed={audioOn} onClick={toggleAudio}>
-          {audioOn ? <Mic size={15} /> : <MicOff size={15} />}
-        </Button>
-        <Button type="button" variant="outline" size="sm" data-testid="call-camera" aria-label={videoOn ? "Desligar câmera" : "Ligar câmera"} title={videoOn ? "Desligar câmera" : "Ligar câmera"} aria-pressed={videoOn} onClick={toggleVideo}>
-          {videoOn ? <Video size={15} /> : <VideoOff size={15} />}
-        </Button>
-      </div>
-    </section>
-  );
-}
-
-function RemoteVideo({ tile }: { tile: RemoteTile }) {
-  const ref = useRef<HTMLVideoElement>(null);
-  useEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    node.srcObject = tile.stream;
-    return () => {
-      if (node.srcObject === tile.stream) node.srcObject = null;
-    };
-  }, [tile.stream]);
-  return (
-    <div className="mt-2">
-      <video
-        ref={ref}
-        data-testid="call-remote"
-        data-name={tile.name}
-        data-audio={tile.audio ? "on" : "off"}
-        data-video={tile.video ? "on" : "off"}
-        autoPlay
-        muted={!tile.audio}
-        playsInline
-        className="h-16 w-full rounded-xl bg-black object-cover"
-      />
-      <p className="mt-2 px-1 text-xs leading-5 break-words">
-        {tile.name}
-        {tile.stream ? "" : " · ligando"}
-        {tile.video ? "" : " · câmera desligada"}
-        {tile.audio ? "" : " · mudo"}
-      </p>
-    </div>
-  );
-}
-
-function parsePayload(raw: string): Record<string, unknown> | null {
+import { Mic, MicOff, Video, VideoOff, ChevronDown, ChevronUp, Lock, LockOpen, Users } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { callInitiator, parseCallSignal, type CallDownlink, type CallAction, type CallPeer, type CallSignal } from '@/domain/call';
+import { areaAt } from '@/domain/meeting-areas';
+import type { FloorId } from '@/domain/floors';
+import type { Pose } from '@/domain/walker';
+import { Button } from '@/components/ui/button';
+export type PresenceRoster = Extract<CallDownlink,{type:'roster'}>;
+type Tile = { id:string;name:string;stream:MediaStream|null;audio:boolean;video:boolean };
+type Link = {pc:RTCPeerConnection;queued:RTCIceCandidateInit[];audio:RTCRtpTransceiver;video:RTCRtpTransceiver};
+type Props = {onEvent:(channel:string,value:unknown)=>void;onConnected:(connected:boolean)=>void;pose:Pose;floor:FloorId;host:boolean;onRoster:(roster:PresenceRoster|null)=>void;onCorrection:(pose:Pose)=>void;inviteTarget:{id:string;stamp:number}|null;onClearInvite:()=>void};
+const errors:Record<string,string>={locked:'Esta área está trancada. Peça ao responsável para abrir.',busy:'Essa pessoa já está em uma conversa ou convite.',forbidden:'Ação indisponível: aproxime-se no mesmo andar e confira a tranca.',expired:'Este convite expirou.',invalid:'Não foi possível atualizar a presença.',closed:'A presença está reconectando.'};
+export function OfficeCall(props:Props) {
+ const [collapsed,setCollapsed]=useState(false),[roster,setRoster]=useState<PresenceRoster|null>(null),[connected,setConnected]=useState(false),[hint,setHint]=useState('Conectando presença…'),[tiles,setTiles]=useState<Tile[]>([]),[audioOn,setAudioOn]=useState(false),[videoOn,setVideoOn]=useState(false),[confirm,setConfirm]=useState<CallPeer|null>(null),[pendingMedia,setPendingMedia]=useState(false);
+ const latest=useRef(props),snapshot=useRef<PresenceRoster|null>(null),self=useRef(''),scope=useRef<string|null>(null),epoch=useRef(0),links=useRef(new Map<string,Link>()),stream=useRef<MediaStream|null>(null),source=useRef<EventSource|null>(null),localVideo=useRef<HTMLVideoElement>(null),desired=useRef({audio:false,video:false}),closed=useRef(false),busyPresence=useRef(false);
+ useEffect(()=>{latest.current=props;});
+ const send=async(payload:Record<string,unknown>)=>{
+  if(!self.current||closed.current)return null;
+  try {const response=await fetch('/api/call',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:self.current,...payload})});const result=await response.json();if(!response.ok)setHint(errors[result.error]??'A ação não foi concluída. Tente novamente.');return result;}catch{setHint('Sem conexão. Tentando reconectar…');return null;}
+ };
+ const act=async(action:CallAction)=>send({action});
+ const signal=async(to:string,signal:CallSignal)=>send({to,signal});
+ const reset=()=>{
+  epoch.current++;for(const link of links.current.values())link.pc.close();links.current.clear();
+  stream.current?.getTracks().forEach(t=>t.stop());stream.current=null;desired.current={audio:false,video:false};
+  if(localVideo.current)localVideo.current.srcObject=null;
+  setTiles([]);setAudioOn(false);setVideoOn(false);
+ };
+ const announce=()=>{for(const id of links.current.keys())void signal(id,{type:'media',...desired.current});};
+ const allowed=(id:string)=>{const r=snapshot.current;return Boolean(scope.current&&r?.peers.some(p=>p.id===id&&p.meetingId===scope.current));};
+ const createLink=(peer:CallPeer):Link=>{
+  const old=links.current.get(peer.id);if(old)return old;
+  const generation=epoch.current,pc=new RTCPeerConnection({iceServers:[]});
+  const audio=pc.addTransceiver('audio',{direction:'sendrecv'}),video=pc.addTransceiver('video',{direction:'sendrecv'});
+  if(stream.current)for(const t of stream.current.getTracks())void(t.kind==='audio'?audio:video).sender.replaceTrack(t);
+  const link={pc,audio,video,queued:[] as RTCIceCandidateInit[]};links.current.set(peer.id,link);
+  pc.onicecandidate=e=>{if(e.candidate&&generation===epoch.current&&allowed(peer.id))void signal(peer.id,{type:'ice',candidate:e.candidate.candidate,sdpMid:e.candidate.sdpMid,sdpMLineIndex:e.candidate.sdpMLineIndex});};
+  pc.ontrack=e=>{
+   if(generation!==epoch.current||!allowed(peer.id))return;
+   setTiles(current=>current.map(tile=>{if(tile.id!==peer.id)return tile;const media=tile.stream??new MediaStream();if(!media.getTracks().includes(e.track))media.addTrack(e.track);return {...tile,stream:media};}));
+  };
+  return link;
+ };
+ const offer=async(peer:CallPeer)=>{
+  const generation=epoch.current,link=createLink(peer);
+  try {await link.pc.setLocalDescription(await link.pc.createOffer());if(generation!==epoch.current||!allowed(peer.id))return;const sdp=link.pc.localDescription?.sdp;if(sdp)await signal(peer.id,{type:'offer',sdp});}catch{/* Disconnected or superseded scope. */}
+ };
+ const receiveSignal=async(event:Extract<CallDownlink,{type:'signal'}>)=>{
+  if(event.meetingId!==scope.current||!allowed(event.from))return;
+  const s=parseCallSignal(event.signal);if(!s)return;
+  if(s.type==='media'){setTiles(t=>t.map(tile=>tile.id===event.from?{...tile,audio:s.audio,video:s.video}:tile));return;}
+  const peer=snapshot.current?.peers.find(p=>p.id===event.from);if(!peer)return;
+  const link=createLink(peer),generation=epoch.current;
+  const flush=async()=>{for(const ice of link.queued.splice(0))await link.pc.addIceCandidate(ice);};
   try {
-    const value = JSON.parse(raw) as unknown;
-    if (!value || typeof value !== "object") return null;
-    return value as Record<string, unknown>;
-  } catch {
-    return null;
+   if(s.type==='offer'){
+    await link.pc.setRemoteDescription({type:'offer',sdp:s.sdp});await flush();
+    if(generation!==epoch.current||!allowed(peer.id))return;
+    await link.pc.setLocalDescription(await link.pc.createAnswer());if(generation===epoch.current&&allowed(peer.id)&&link.pc.localDescription?.sdp)await signal(peer.id,{type:'answer',sdp:link.pc.localDescription.sdp});announce();
+   }else if(s.type==='answer'){await link.pc.setRemoteDescription({type:'answer',sdp:s.sdp});await flush();announce();}
+   else{const ice={candidate:s.candidate,sdpMid:s.sdpMid,sdpMLineIndex:s.sdpMLineIndex};if(link.pc.remoteDescription)await link.pc.addIceCandidate(ice);else link.queued.push(ice);}
+  }catch{/* A pending signal can belong to a just-closed connection. */}
+ };
+ const receiveRoster=(r:PresenceRoster)=>{
+  snapshot.current=r;
+  const own=r.peers.find(p=>p.id===r.self);
+  const physical=areaAt(r.areas,latest.current.floor,latest.current.pose.x,latest.current.pose.z)?.id??null;
+  // An SSE roster can arrive before our position POST: never reconnect the previous area.
+  const privatePartner=own?.meetingId?.startsWith('private:') ? r.peers.find(p=>p.id!==own.id&&p.meetingId===own.meetingId) : null;
+  const separated=privatePartner && (privatePartner.floor!==latest.current.floor || Math.hypot(privatePartner.x-latest.current.pose.x,privatePartner.z-latest.current.pose.z)>3.5);
+  const meeting=own?.floor===latest.current.floor && own.areaId===physical && !separated ? own.meetingId : null;
+  if(r.invites.some(invite=>invite.to===r.self))setCollapsed(false);
+  if(scope.current!==meeting){reset();scope.current=meeting;}
+  const others=r.peers.filter(p=>p.id!==r.self&&meeting&&p.meetingId===meeting),ids=new Set(others.map(p=>p.id));
+  for(const [id,link]of links.current)if(!ids.has(id)){link.pc.close();links.current.delete(id);}
+  setTiles(old=>others.map(p=>({...old.find(t=>t.id===p.id)??{stream:null,audio:false,video:false},id:p.id,name:p.name})));
+  for(const peer of others)if(!links.current.has(peer.id)){createLink(peer);if(callInitiator(r.self,peer.id))void offer(peer);}
+  setRoster(r);latest.current.onRoster(r);setConnected(true);
+ };
+ const publishPresence=async()=>{
+  if(busyPresence.current||!snapshot.current)return;busyPresence.current=true;
+  const p=latest.current;const result=await act({type:'presence',floor:p.floor,...p.pose,timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone});
+  busyPresence.current=false;
+  if(result?.error==='locked') {const own=snapshot.current?.peers.find(p=>p.id===self.current);if(own)latest.current.onCorrection(own);}
+ };
+ useEffect(()=>{
+  closed.current=false;self.current=crypto.randomUUID();
+  const es=new EventSource(`/api/call?peer=${encodeURIComponent(self.current)}`);source.current=es;
+  es.addEventListener('roster',e=>{try{const r=JSON.parse((e as MessageEvent).data) as PresenceRoster;if(r.type==='roster'&&r.self===self.current&&Array.isArray(r.peers)){const first=!snapshot.current;receiveRoster(r);if(first)void publishPresence();}}catch{}});
+  es.addEventListener('signal',e=>{try{void receiveSignal(JSON.parse((e as MessageEvent).data));}catch{}});
+  es.addEventListener('notice',e=>{try{setHint(JSON.parse((e as MessageEvent).data).message);}catch{}});
+  for(const channel of ['snapshot','local-agent','local-presence','local-notice','cloud-agent','cloud-notice'])es.addEventListener(channel,e=>{try{latest.current.onEvent(channel,JSON.parse((e as MessageEvent).data));}catch{}});
+  es.onopen=()=>{setConnected(true);latest.current.onConnected(true);setHint('');};
+  es.onerror=()=>{setConnected(false);latest.current.onConnected(false);setHint('Reconectando presença…');scope.current=null;reset();latest.current.onRoster(null);};
+  const timer=window.setInterval(()=>void publishPresence(),180);
+  return()=>{closed.current=true;es.close();source.current=null;window.clearInterval(timer);scope.current=null;reset();latest.current.onRoster(null);};
+  // This transport owns a stable tab identity; mutable UI values travel through latest/snapshot refs.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[]);
+ useEffect(()=>{
+  const r=snapshot.current,own=r?.peers.find(p=>p.id===self.current);if(!r||!own)return;
+  const next=areaAt(r.areas,props.floor,props.pose.x,props.pose.z)?.id??null;
+  const partner=own.meetingId?.startsWith('private:')?r.peers.find(p=>p.id!==own.id&&p.meetingId===own.meetingId):null;
+  if(own.floor!==props.floor||own.areaId!==next||(partner&&Math.hypot(partner.x-props.pose.x,partner.z-props.pose.z)>3.5)) {scope.current=null;reset();}
+  // Movement must stop old media before server roundtrip confirms new membership.
+ },[props.floor,props.pose]);
+ useEffect(()=>{
+  if(!props.inviteTarget)return;
+  const r=snapshot.current,own=r?.peers.find(p=>p.id===self.current),peer=r?.peers.find(p=>p.id===props.inviteTarget?.id);
+  if(own&&peer&&peer.id!==own.id&&peer.floor===own.floor&&Math.hypot(peer.x-own.x,peer.z-own.z)<=2.5){setConfirm(peer);setCollapsed(false);}else setHint('Aproxime-se até 2,5 m para convidar essa pessoa.');
+  latest.current.onClearInvite();
+ },[props.inviteTarget]);
+ useEffect(()=>{if(localVideo.current)localVideo.current.srcObject=stream.current;},[videoOn]);
+ const toggle=async(kind:'audio'|'video')=>{
+  if(!scope.current||pendingMedia)return;
+  if(desired.current[kind]) {
+   for(const t of stream.current?.getTracks()??[])if(t.kind===(kind==='audio'?'audio':'video')){t.stop();stream.current?.removeTrack(t);}
+   for(const l of links.current.values())void l[kind].sender.replaceTrack(null);
+   desired.current[kind]=false;if(kind==='audio')setAudioOn(false);else setVideoOn(false);announce();return;
   }
+  const generation=epoch.current;setPendingMedia(true);
+  try {
+   const captured=await navigator.mediaDevices.getUserMedia(kind==='audio'?{audio:{echoCancellation:true,noiseSuppression:true},video:false}:{audio:false,video:true});
+   if(closed.current||generation!==epoch.current||!scope.current){captured.getTracks().forEach(t=>t.stop());return;}
+   stream.current??=new MediaStream();for(const t of captured.getTracks()){stream.current.addTrack(t);for(const l of links.current.values())await l[kind].sender.replaceTrack(t);}
+   if(localVideo.current)localVideo.current.srcObject=stream.current;
+   desired.current[kind]=true;if(kind==='audio')setAudioOn(true);else setVideoOn(true);setHint('');announce();
+  }catch{setHint('Permissão recusada ou dispositivo indisponível. Libere o acesso no navegador e tente novamente.');}
+  finally{setPendingMedia(false);}
+ };
+ const own=roster?.peers.find(p=>p.id===roster.self),area=roster?.areas.find(a=>a.id===own?.areaId),lock=roster?.locks.find(l=>l.areaId===own?.areaId),privateMeeting=own?.meetingId?.startsWith('private:'),incoming=roster?.invites.find(i=>i.to===roster.self),outgoing=roster?.invites.find(i=>i.from===roster.self);
+ return <section className={`call-panel meeting-panel absolute top-24 left-4 z-20 rounded-2xl border border-white/70 bg-white/90 text-slate-700 shadow-sm backdrop-blur ${collapsed?'call-collapsed':''}`} data-testid="call-panel" data-audio={audioOn?'on':'off'} data-video={videoOn?'on':'off'}>
+  <button className="call-heading" aria-label={collapsed?'Expandir chamada':'Recolher chamada'} aria-expanded={!collapsed} onClick={()=>setCollapsed(!collapsed)}><span>{privateMeeting?'Conversa privada':area?.name??'No corredor'}</span>{collapsed?<ChevronDown size={16}/>:<ChevronUp size={16}/>}</button>
+  <p className="text-xs leading-5" data-testid="call-waiting">{!connected?'Reconectando…':!own?.meetingId?'Entre em uma área para reunir-se.':tiles.length?`${tiles.length+1} pessoas nesta reunião`:'Só você nesta reunião.'}</p>
+  {hint&&<p role="status" className="my-2 text-xs leading-5 text-amber-800">{hint}</p>}
+  <div className="meeting-content">
+   {lock&&<p className="mb-2 text-xs">Área trancada · {roster?.peers.find(p=>p.id===lock.owner)?.name}</p>}
+   {area&&<Button size="sm" variant="outline" disabled={Boolean(lock&&lock.owner!==roster?.self&&!props.host)} onClick={()=>void act({type:'lock',locked:!lock})}>{lock?<LockOpen size={14}/>:<Lock size={14}/>} {lock?'Destrancar área':'Trancar área'}</Button>}
+   {Boolean(roster?.locks.length)&&<div className="meeting-invite"><p>Áreas trancadas</p>{roster?.locks.map(locked=><div key={locked.areaId} className="w-full"><p>{roster.areas.find(a=>a.id===locked.areaId)?.name} · {roster.peers.find(p=>p.id===locked.owner)?.name}</p>{props.host&&<Button size="sm" variant="outline" onClick={()=>void act({type:'lock',locked:false,areaId:locked.areaId})}>Destrancar como anfitrião</Button>}</div>)}</div>}
+   {privateMeeting&&<Button size="sm" variant="outline" onClick={()=>void act({type:'leave'})}>Encerrar conversa</Button>}
+   {confirm&&<div className="meeting-invite" role="dialog" aria-label="Confirmar convite"><p>Conversar em particular com {confirm.name}?</p><Button size="sm" onClick={()=>{void act({type:'invite',to:confirm.id});setConfirm(null);}}>Confirmar convite</Button><Button size="sm" variant="outline" onClick={()=>setConfirm(null)}>Cancelar</Button></div>}
+   {incoming&&<div className="meeting-invite" role="dialog" aria-label="Convite para conversar"><p>{roster?.peers.find(p=>p.id===incoming.from)?.name} quer conversar. Expira em 30 s.</p><Button size="sm" onClick={()=>void act({type:'accept',inviteId:incoming.id})}>Aceitar</Button><Button size="sm" variant="outline" onClick={()=>void act({type:'decline',inviteId:incoming.id})}>Recusar</Button></div>}
+   {outgoing&&<div className="meeting-invite"><p>Aguardando confirmação de {roster?.peers.find(p=>p.id===outgoing.to)?.name}…</p><Button size="sm" variant="outline" onClick={()=>void act({type:'cancel',inviteId:outgoing.id})}>Cancelar convite</Button></div>}
+   {videoOn&&<video ref={localVideo} autoPlay muted playsInline data-testid="call-local" className="rounded-xl bg-black object-cover"/>}
+   {tiles.map(tile=><RemoteVideo key={tile.id} tile={tile}/>)}
+   <details className="meeting-people mt-3" open><summary><Users size={14}/> Pessoas conectadas ({roster?.peers.length??0})</summary>{roster?.peers.map(p=><button key={p.id} disabled={p.id===roster.self} onClick={()=>{if(own&&p.floor===own.floor&&Math.hypot(p.x-own.x,p.z-own.z)<=2.5)setConfirm(p);else setHint('Aproxime-se até 2,5 m no mesmo andar para conversar.');}}><strong>{p.name}{p.id===roster.self?' (você)':''}{roster.peers.filter(other=>other.name===p.name).length>1?' · outra aba':''}</strong><span>{p.floor==='hr'?'RH':'Térreo'} · {roster.areas.find(a=>a.id===p.areaId)?.name??'Corredor'}{p.meetingId?.startsWith('private:')?' · em conversa':''}</span></button>)}</details>
+  </div>
+  <div className="call-controls mt-3 grid grid-cols-2 gap-2"><Button size="sm" variant="outline" disabled={!connected||!own?.meetingId||pendingMedia} aria-label={audioOn?'Desligar microfone':'Ligar microfone'} aria-pressed={audioOn} data-testid="call-mic" onClick={()=>void toggle('audio')}>{audioOn?<Mic size={15}/>:<MicOff size={15}/>}</Button><Button size="sm" variant="outline" disabled={!connected||!own?.meetingId||pendingMedia} aria-label={videoOn?'Desligar câmera':'Ligar câmera'} aria-pressed={videoOn} data-testid="call-camera" onClick={()=>void toggle('video')}>{videoOn?<Video size={15}/>:<VideoOff size={15}/>}</Button></div>
+ </section>;
 }
-
-function sendMedia(from: string, to: string, signal: CallSignal) {
-  if (!from) return;
-  void fetch("/api/call", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to, signal }),
-  }).catch(() => undefined);
+function RemoteVideo({tile}:{tile:Tile}){
+ const ref=useRef<HTMLVideoElement>(null);
+ useEffect(()=>{const node=ref.current;if(!node)return;node.srcObject=tile.stream;return()=>{node.pause();node.srcObject=null;};},[tile.stream]);
+ return <div className="mt-3"><video ref={ref} autoPlay playsInline muted={!tile.audio} data-testid="call-remote" data-name={tile.name} className={tile.video?'rounded-xl bg-black object-cover':'h-0! opacity-0'} /><p className="mt-1 text-xs">{tile.name} · {tile.audio?'microfone ligado':'mudo'}{tile.video?' · câmera ligada':''}</p></div>;
 }

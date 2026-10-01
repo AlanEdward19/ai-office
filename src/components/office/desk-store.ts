@@ -6,6 +6,7 @@ import {
   serializeDesks,
   type DeskRecord,
 } from "@/domain/desks";
+import { DESK_CAPACITY } from "@/domain/office-map";
 import type { JobForm } from "@/domain/job-form";
 
 let snapshot = "";
@@ -19,8 +20,8 @@ function readStorage() {
 }
 
 function publish(next: string) {
-  snapshot = next;
   window.localStorage.setItem(DESKS_STORAGE_KEY, next);
+  snapshot = next;
   for (const listener of listeners) listener();
 }
 
@@ -41,6 +42,7 @@ export const deskStore = {
   },
   add(form: JobForm): DeskRecord {
     readStorage();
+    if (loadDesks(snapshot || null).length >= DESK_CAPACITY) throw new Error("Capacidade atingida: nove postos. Os corredores devem permanecer livres.");
     const desk: DeskRecord = {
       id: crypto.randomUUID(),
       form,

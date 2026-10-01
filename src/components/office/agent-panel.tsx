@@ -9,17 +9,20 @@ import type { DispatchRecord } from "@/domain/dispatch";
 import type { PlacedAgent } from "@/domain/placement";
 import type { PlacedRoom } from "@/domain/rooms";
 import { PROVIDER_LABELS } from "@/domain/providers";
+import { AgentHistoryPanel } from "./agent-history-panel";
 import { agentProfileStore } from "./agent-profile-store";
 
 type Snapshot = { status: string; messages: { role: string; text: string }[]; activity: string[]; error?: string | null };
 const empty: Snapshot = { status: "idle", messages: [], activity: [] };
 
-export function AgentPanel({ agent, name, host, offline, dispatches, rooms, onClose, onBoard, onAssign, onHire }: {
+export function AgentPanel({ agent, name, host, offline, dispatches, rooms, onClose, onBoard, onAssign, onHire, initialTab="activity", onApproach, onMeeting, colleagues=[] }: {
   agent: PlacedAgent; name?: string; host: boolean; offline: boolean; dispatches: DispatchRecord[]; rooms: PlacedRoom[];
+  initialTab?:"activity"|"messages"|"history";onApproach?:()=>void;onMeeting?:(id:string)=>void;colleagues?:PlacedAgent[];
   onClose: () => void; onBoard: (id: string) => void; onAssign?: () => Promise<void>; onHire: () => void;
 }) {
   const provider = agent.form?.provider ?? agent.event.provider;
-  const [tab, setTab] = useState<"activity" | "messages" | "cards">("activity");
+  const [tab, setTab] = useState<"activity" | "messages" | "cards" | "history">(initialTab);
+  const [meetingTarget,setMeetingTarget]=useState("");
   const [draftName, setDraftName] = useState(name ?? agent.form?.role ?? PROVIDER_LABELS[provider]);
   const [message, setMessage] = useState("");
   const [snapshot, setSnapshot] = useState<Snapshot>(empty);
@@ -67,8 +70,11 @@ export function AgentPanel({ agent, name, host, offline, dispatches, rooms, onCl
         <DialogDescription>{PROVIDER_LABELS[provider]} · {agent.event.owner} · {offline && agent.event.origin === "local" ? "Máquina offline" : STATUS_LABELS[agent.event.status]}</DialogDescription>
       </DialogHeader>
       {host && <form className="mb-5 flex gap-2" onSubmit={e => { e.preventDefault(); try { agentProfileStore.rename(agent.id, draftName); setError(null); } catch (e) { setError(e instanceof Error ? e.message : "Nome inválido."); } }}><Input aria-label="Nome do agente" maxLength={60} value={draftName} onChange={e => setDraftName(e.target.value)} /><Button type="submit" variant="outline">Renomear</Button></form>}
-      <div className="mb-5 flex gap-2 border-b border-slate-200 pb-3" role="tablist" aria-label="Detalhes do agente">{(["activity", "messages", "cards"] as const).map(key => <button key={key} role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={`rounded-xl px-4 py-2 text-sm transition ${tab === key ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>{key === "activity" ? "Atividade" : key === "messages" ? "Conversa" : `Cards (${dispatches.length})`}</button>)}</div>
+      <div className="mb-5 flex flex-wrap gap-2 border-b border-slate-200 pb-3" role="tablist" aria-label="Detalhes do agente">{(["activity", "messages", "history", "cards"] as const).map(key => <button key={key} role="tab" aria-selected={tab === key} onClick={() => {if(key==="messages"&&initialTab!=="messages"&&host&&onApproach)onApproach();else setTab(key);}} className={`rounded-xl px-4 py-2 text-sm transition ${tab === key ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>{key === "activity" ? "Atividade" : key === "messages" ? "Conversa" : key === "history" ? "Histórico" : `Cards (${dispatches.length})`}</button>)}</div>
       {tab === "activity" && <div className="space-y-4">
+        {host&&onApproach&&<Button className="w-full" onClick={onApproach}>Chamar para conversar comigo</Button>}
+        {host&&onMeeting&&colleagues.length>0&&<div className="flex flex-wrap gap-2"><select aria-label="Interlocutor do agente" className="min-w-0 flex-1 rounded-xl border border-slate-200 p-2 text-sm" value={meetingTarget} onChange={event=>setMeetingTarget(event.target.value)}><option value="">Encontrar outro agente…</option>{colleagues.map(person=><option key={person.id} value={person.id}>{person.displayName??person.form?.role??PROVIDER_LABELS[person.event.provider]}</option>)}</select><Button variant="outline" disabled={!meetingTarget} onClick={()=>onMeeting(meetingTarget)}>Marcar encontro</Button></div>}
+
         <div className="rounded-2xl bg-slate-50 p-4"><p className="font-semibold">{running ? "Executando trabalho" : STATUS_LABELS[agent.event.status]}</p><p className="mt-1 text-sm text-slate-500">Última observação: {new Date(agent.event.observedAt).toLocaleString("pt-BR")}</p></div>
         {agent.event.origin === "local" && <p className="text-sm text-slate-600">O avatar observa as sessões locais. A conversa abaixo abre uma sessão própria desta mesa; ela não envia comandos para outras sessões abertas no terminal.</p>}
         {snapshot.activity.length ? <ul className="space-y-2 text-sm">{snapshot.activity.map((line,i) => <li key={i} className="rounded-xl border border-slate-100 p-3">{line}</li>)}</ul> : <p className="py-5 text-sm text-slate-500">As ações da sessão desta mesa aparecem aqui quando você iniciar trabalho.</p>}
@@ -81,6 +87,7 @@ export function AgentPanel({ agent, name, host, offline, dispatches, rooms, onCl
           <form onSubmit={e => { e.preventDefault(); void send("message"); }}><textarea aria-label="Mensagem para o agente" maxLength={12000} className="min-h-24 w-full resize-y rounded-xl border border-slate-200 bg-white p-3 text-sm" placeholder="Explique o que você precisa…" value={message} onChange={e => setMessage(e.target.value)} /><Button className="mt-2 w-full" disabled={sending || running || !message.trim() || (provider === "cursor" && !cursorAgentId)}>{sending ? "Enviando…" : running ? "Agente trabalhando…" : "Enviar mensagem"}</Button></form>
         </>}
       </div>}
+      {tab === "history" && (host ? <AgentHistoryPanel agentId={agent.id} provider={provider} origin={provider === "cursor" ? agent.event.origin : "local"} cloudId={cursorAgentId} /> : <p className="py-5 text-sm text-slate-500">Histórico privado disponível somente ao anfitrião.</p>)}
       {tab === "cards" && <div className="space-y-3">
         {dispatches.map((d,i) => <div key={`${d.issueId}-${i}`} className="rounded-xl border border-slate-200 p-4"><p className="text-sm font-semibold">{rooms.find(r => r.id === d.projectId)?.name ?? "Projeto"}</p><p className="mt-1 text-xs text-slate-500">Atribuído em {new Date(d.createdAt).toLocaleString("pt-BR")}</p>{d.cursorAgentUrl && <a className="mt-2 block text-sm underline" href={d.cursorAgentUrl} target="_blank" rel="noreferrer">Abrir execução no Cursor</a>}<button className="mt-2 text-sm underline" onClick={() => onBoard(d.projectId)}>Ver card no quadro</button></div>)}
         {!dispatches.length && <p className="py-4 text-sm text-slate-500">Nenhum card atribuído a esta mesa.</p>}

@@ -1,21 +1,31 @@
 "use client";
+import {chairRotation,agentSeatPose} from "@/domain/seating";
+import {Vector3} from "three";
+import { LocalTimeLabel } from "./local-time-label";
+import type { PresenceRoster } from "./office-call";
 
 import type { CameraMode } from "@/domain/camera";
 
 import { RoundedBox } from "@react-three/drei/core/RoundedBox";
-import { useFrame, useThree } from "@react-three/fiber";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { BackSide, Box3, Mesh, Raycaster, Vector3, type Group } from "three";
+import { useFrame } from "@react-three/fiber";
+import { useLayoutEffect, useMemo, useRef } from "react";
+import { BackSide, Mesh, type Group } from "three";
 
 import { STATUS_LABELS, type AgentStatus } from "@/domain/agent-event";
-import { commonAreas, ELEVATOR_DOOR_ROTATION } from "@/domain/office-layout";
+import { commonAreas, ELEVATOR_DOOR_ROTATION, LOUNGE_POSITION } from "@/domain/office-layout";
+import { OFFICE_ENTRY, PROJECT_ROOM, OFFICE_BOUNDS, FURNISHED_AREAS } from "@/domain/office-map";
+import { sceneObstacles } from "@/domain/scene-collision";
 import { ELEVATOR, type FloorId } from "@/domain/floors";
 import { PROVIDER_LABELS } from "@/domain/providers";
 import { localWingPlate, type PlacedAgent } from "@/domain/placement";
-import { CEO_CORNER, LOBBY, RECEPTION, roomColor, type PlacedRoom } from "@/domain/rooms";
-import { interactTargets, type InteractTarget, type Pose } from "@/domain/walker";
+import { CEO_CORNER, RECEPTION, roomColor, type PlacedRoom } from "@/domain/rooms";
+import { avatarRotation, interactTargets, type InteractTarget, type Pose } from "@/domain/walker";
 import type { Appearance, Gesture } from "@/domain/character";
 import type { Obstacle } from "@/domain/walker";
+import { AreaFocus } from "./area-focus";
+import {ProjectedLabel} from "./projected-label";
+import { AgentActors } from "./agent-actors";
+import type {RoutineEngine,RoutineVisual,RoutineCommand,RoutineResult} from "@/domain/agent-routines";
 import { Avatar } from "./avatar";
 import { DEFAULT_APPEARANCE } from "@/domain/character";
 import { OfficePlayer } from "./player";
@@ -28,6 +38,10 @@ const STATUS_COLOR: Record<AgentStatus, string> = {
 };
 
 export function OfficeScene({
+  routineEngine, routineVisuals, routineCommands, idleMs, host, userPose, newHire, onRoutines, onRoutineResult, onAgent,
+  presence,
+  correction,
+  onPerson,
   appearance,
   cameraMode,
   zoom,
@@ -43,6 +57,10 @@ export function OfficeScene({
   onNearby,
   onPose,
 }: {
+  routineEngine?:RoutineEngine;routineVisuals?:RoutineVisual[];routineCommands?:RoutineCommand[];idleMs?:number;host?:boolean;userPose?:Pose;newHire?:{id:string;stamp:number}|null;onRoutines?:(visuals:RoutineVisual[])=>void;onRoutineResult?:(result:RoutineResult)=>void;onAgent?:(id:string)=>void;
+  presence: PresenceRoster | null;
+  correction: {pose:Pose;stamp:number}|null;
+  onPerson:(id:string)=>void;
   appearance: Appearance;
   cameraMode: CameraMode;
   zoom: number;
@@ -59,28 +77,18 @@ export function OfficeScene({
   onPose: (pose: Pose) => void;
 }) {
   const targets = useMemo(
-    () => interactTargets({ floor, rooms, agents }),
-    [floor, rooms, agents],
+    () => [...interactTargets({ floor, rooms, agents }),...(floor==="ground"?(routineVisuals??[]).filter(r=>r.visible&&agents.some(a=>a.id===r.id)).map(r=>({kind:"desk" as const,id:r.id,...agentSeatPose(r,agents.find(a=>a.id===r.id))})):[])],
+    [floor, rooms, agents, routineVisuals],
   );
 
   const environment = useRef<Group>(null);
   const obstacles = useRef<Obstacle[]>([]);
   const cameraWalls = useRef<Mesh[]>([]);
   useLayoutEffect(() => {
-    obstacles.current.length = 0;
+    obstacles.current = environment.current ? sceneObstacles(environment.current) : [];
     cameraWalls.current.length = 0;
-    environment.current?.updateWorldMatrix(true, true);
-    environment.current?.traverse((object) => {
-      if (!(object instanceof Mesh)) return;
-      if (object.userData.cameraWall) cameraWalls.current.push(object);
-      for (let ancestor = object.parent; ancestor; ancestor = ancestor.parent) {
-        if (ancestor.userData.noCollision) return;
-      }
-      if (object.userData.noCollision) return;
-      const box = new Box3().setFromObject(object);
-      // Solid geometry at body height; floors, rugs and ceiling stay walkable.
-      if (box.max.y <= 0.12 || box.min.y >= 1.7) return;
-      obstacles.current.push({ minX: box.min.x, maxX: box.max.x, minZ: box.min.z, maxZ: box.max.z });
+    environment.current?.traverse(object => {
+      if (object instanceof Mesh && object.userData.cameraWall) cameraWalls.current.push(object);
     });
   }, [floor, rooms, agents, cameraMode]);
 
@@ -104,7 +112,7 @@ export function OfficeScene({
         shadow-camera-bottom={-22}
         shadow-bias={-0.0008}
       />
-      <group ref={environment}>
+      <group ref={environment} name="office-environment">
       {cameraMode !== "isometric" && <Ceiling floor={floor} />}
       <WallClock />
       {floor === "ground" && <Lounge />}
@@ -112,15 +120,13 @@ export function OfficeScene({
       {floor === "ground" ? (
         <>
           <OfficeEnvelope cameraMode={cameraMode} />
-          <LobbyShell cameraMode={cameraMode} />
           <LobbyFloor />
           <MeetingNook />
-          <LocalWing offline={localOffline} cameraMode={cameraMode} />
+          <LocalWing offline={localOffline} />
           <Reception />
           <CeoCorner />
           {commonAreas(rooms).map(zone => <CommonArea key={zone.name} {...zone} />)}
-          <CommonArea name="Café da equipe" x={12} z={-6.8} style={1} />
-          <CommonArea name="Laboratório" x={12} z={-12.8} style={0} />
+          {FURNISHED_AREAS.filter(a=>a.id==="cafe"||a.id==="research").map(a=><CommonArea key={a.id} name={a.name} x={a.x} z={a.z} style={a.id==="cafe"?1:0} />)}
           {rooms.map((room) => (
             <ProjectRoom key={room.id} room={room} open={room.id === nearId} cameraMode={cameraMode} />
           ))}
@@ -131,7 +137,8 @@ export function OfficeScene({
               selected={agent.id === nearId}
               dropArmed={dropArmed}
               localOffline={localOffline}
-              timeZone={agentTimeZone}
+              routineEngine={routineEngine}
+              routineVisuals={routineVisuals}
             />
           ))}
         </>
@@ -140,7 +147,15 @@ export function OfficeScene({
       )}
       <Elevator />
       </group>
+      {presence?.peers.filter(p => p.id !== presence.self && p.floor === floor).map(peer => <group key={peer.id} position={[peer.x,0,peer.z]} rotation={[0,avatarRotation(peer.yaw),0]} userData={{personId:peer.id,noCollision:true}} onClick={event=>{event.stopPropagation();onPerson(peer.id);}}>
+        <Avatar appearance={{...DEFAULT_APPEARANCE,shirt:"#6375b7",accessory:"glasses"}} motion={{current:{moving:false,seated:peer.seated,gesture:null,gestureStarted:0}}} />
+        <LocalTimeLabel timeZone={peer.timeZone} lines={[{text:peer.name,kind:"title"}]} />
+      </group>)}
+      <AgentActors timeZone={agentTimeZone} agents={agents} floor={floor} host={host??false} engine={routineEngine} shared={routineVisuals??[]} commands={routineCommands??[]} idleMs={idleMs??300000} user={userPose??{x:0,z:2.6,yaw:0,pitch:0}} obstacles={obstacles} presence={presence} newHire={newHire??null} onSnapshot={onRoutines} onResult={onRoutineResult} onAgent={onAgent} />
+      <AreaFocus area={presence?.areas.find(a=>a.id===presence.peers.find(p=>p.id===presence.self)?.areaId && a.floor===floor) ?? null} />
       <OfficePlayer
+        correction={correction}
+        restrictedAreas={presence?.areas.filter(area => area.floor === floor && presence.locks.some(lock => lock.areaId === area.id) && presence.peers.find(p => p.id === presence.self)?.areaId !== area.id) ?? []}
         appearance={appearance}
         cameraMode={cameraMode}
         zoom={zoom}
@@ -159,24 +174,27 @@ export function OfficeScene({
 
 function OfficeEnvelope({ cameraMode }: { cameraMode: CameraMode }) {
   return <group>
-    <mesh position={[3.3, -0.17, -4.9]} receiveShadow><boxGeometry args={[25.2, 0.12, 22.4]} /><meshStandardMaterial color="#d7e3df" roughness={0.9} /></mesh>
-    <Wall position={[3.3, 1.6, -16.1]} size={[25.2, 3.2, 0.18]} />
-    <Wall position={[-9.3, 1.6, -4.9]} size={[0.18, 3.2, 22.4]} />
-    <Wall cutaway={cameraMode === "isometric"} position={[15.9, 1.6, -4.9]} size={[0.18, 3.2, 22.4]} />
-    <Wall cutaway={cameraMode === "isometric"} position={[3.3, 1.6, 6.3]} size={[25.2, 3.2, 0.18]} />
+    <mesh position={[3.3, -0.17, -8.9]} receiveShadow><boxGeometry args={[25.2, 0.12, 30.4]} /><meshStandardMaterial color="#d7e3df" roughness={0.9} /></mesh>
+    <mesh position={[OFFICE_ENTRY.x,-.05,6.8]} receiveShadow><boxGeometry args={[3.6,.12,1.7]} /><meshStandardMaterial color="#a9bfbd" /></mesh>
+    <Wall position={[3.3, 1.6, OFFICE_BOUNDS.minZ]} size={[25.2, 3.2, 0.18]} />
+    <Wall position={[-9.3, 1.6, -8.9]} size={[0.18, 3.2, 30.4]} />
+    <Wall cutaway={cameraMode === "isometric"} position={[15.9, 1.6, -8.9]} size={[0.18, 3.2, 30.4]} />
+    <Wall cutaway={cameraMode === "isometric"} position={[-6.8, 1.6, 6.3]} size={[5, 3.2, .18]} />
+    <Wall cutaway={cameraMode === "isometric"} position={[6.8, 1.6, 6.3]} size={[18.2, 3.2, .18]} />
+    <group position={[OFFICE_ENTRY.x,0,OFFICE_ENTRY.z]}><mesh position={[-1.04,1.5,0]}><boxGeometry args={[.08,3,.22]} /><meshStandardMaterial color="#447d85" /></mesh><mesh position={[1.04,1.5,0]}><boxGeometry args={[.08,3,.22]} /><meshStandardMaterial color="#447d85" /></mesh><mesh position={[0,3,0]}><boxGeometry args={[2.16,.15,.22]} /><meshStandardMaterial color="#447d85" /></mesh><PlaceLabel title="Entrada" y={2.7} /><mesh position={[0,.025,-1.2]} receiveShadow><boxGeometry args={[2,.04,2.4]} /><meshStandardMaterial color="#c3d4cf" /></mesh></group>
   </group>;
 }
 
 function Ceiling({ floor }: { floor: FloorId }) {
   return (
-    <group position={floor === "ground" ? [3.3, 0, -4.9] : [0, 0, 0]} userData={{ noCollision: true }}>
+    <group position={floor === "ground" ? [3.3, 0, -8.9] : [0, 0, 0]} userData={{ noCollision: true }}>
       <mesh position={[0, 3.2, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={floor === "ground" ? [25.2, 22.4] : [18.4, 12.4]} />
+        <planeGeometry args={floor === "ground" ? [25.2, 30.4] : [18.4, 12.4]} />
         <meshStandardMaterial color="#edf3f4" side={BackSide} roughness={0.92} />
       </mesh>
       {(floor === "ground" ? [-8, 0, 8] : [-6, 0, 6]).map((x) => (
         <group key={x} position={[x, 3.08, 0]}>
-          <RoundedBox args={[0.14, 0.2, floor === "ground" ? 22.4 : 12.4]} radius={0.02} smoothness={2}>
+          <RoundedBox args={[0.14, 0.2, floor === "ground" ? 30.4 : 12.4]} radius={0.02} smoothness={2}>
             <meshStandardMaterial color="#8badaf" roughness={0.8} />
           </RoundedBox>
           {(floor === "ground" ? [-8, 0, 8] : [-4, 0, 4]).map((z) => (
@@ -221,35 +239,8 @@ function WallClock() {
   );
 }
 
-type LabelLine = { text: string; kind: "kicker" | "title" | "meta" | "pill" | "brass" };
 
-function LocalTimeLabel({ timeZone, lines }: { timeZone: string; lines: LabelLine[] }) {
-  const [now, setNow] = useState(() => new Date());
-  const formats = useMemo(() => {
-    try {
-      const viewerZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const options = { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false } as const;
-      return {
-        owner: new Intl.DateTimeFormat("pt-BR", { ...options, timeZone }),
-        viewer: new Intl.DateTimeFormat("pt-BR", { ...options, timeZone: viewerZone }),
-        viewerZone,
-      };
-    } catch {
-      return null;
-    }
-  }, [timeZone]);
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-  if (!formats) return <ProjectedLabel position={[0, 1.85, 0]} lines={lines} />;
-  return <ProjectedLabel position={[0, 2.1, 0]} lines={[
-    ...lines,
-    { text: timeZone, kind: "meta" },
-    { text: `Local ${formats.owner.format(now)}`, kind: "meta" },
-    { text: `Você ${formats.viewer.format(now)} · ${formats.viewerZone}`, kind: "meta" },
-  ]} />;
-}
+
 
 function Elevator() {
   return (
@@ -281,7 +272,7 @@ function CommonArea({ name, x, z, style }: { name: string; x: number; z: number;
       <mesh position={[0, 0.76, -0.45]} castShadow receiveShadow><boxGeometry args={[2.4, 0.1, 0.9]} /><meshStandardMaterial color="#c7a17a" /></mesh>
       {[-1, 1].map(side => <mesh key={side} position={[side, 0.36, -0.45]}><boxGeometry args={[0.1, 0.72, 0.65]} /><meshStandardMaterial color="#526d71" /></mesh>)}
       <DeskDetails position={[0, 0.81, -0.45]} />
-      <Chair position={[-0.65, 0, 0.45]} color="#678d83" /><Chair position={[0.65, 0, 0.45]} color="#678d83" />
+      <Chair position={[-1.15, 0, 0.45]} facing={0} color="#678d83" /><Chair position={[1.15, 0, 0.45]} facing={0} color="#678d83" />
     </>}
     <Plant position={[1.35, 0, -1.1]} />
     <PlaceLabel title={name} y={2.1} />
@@ -321,22 +312,6 @@ function HrFloor({ cameraMode }: { cameraMode: CameraMode }) {
   );
 }
 
-function LobbyShell({ cameraMode }: { cameraMode: CameraMode }) {
-  const halfW = LOBBY.width / 2 + 0.2;
-  const halfD = LOBBY.depth / 2 + 0.2;
-  const height = 3.2;
-  const y = height / 2;
-  return (
-    <group>
-      <Wall cutaway={cameraMode === "isometric"} position={[0, y, halfD]} size={[LOBBY.width + 0.4, height, 0.12]} />
-      <Wall position={[-halfW, y, 0]} size={[0.12, height, LOBBY.depth + 0.4]} />
-      <Wall position={[-5.4, y, -halfD]} size={[7.2, height, 0.12]} />
-      <Wall position={[5.6, y, -halfD]} size={[7.2, height, 0.12]} />
-      <Wall cutaway={cameraMode === "isometric"} position={[halfW, y, -3.3]} size={[0.12, height, 5.6]} />
-      <Wall cutaway={cameraMode === "isometric"} position={[halfW, y, 4.3]} size={[0.12, height, 3.6]} />
-    </group>
-  );
-}
 
 function Table() {
   return (
@@ -347,15 +322,11 @@ function Table() {
   );
 }
 
-function LocalWing({ offline, cameraMode }: { offline: boolean; cameraMode: CameraMode }) {
+function LocalWing({ offline }: { offline: boolean }) {
   const plate = localWingPlate();
   return (
     <group position={[plate.x, 0, plate.z]}>
-      <Wall position={[0, 1.6, -plate.depth / 2]} size={[plate.width, 3.2, 0.18]} />
-      <Wall cutaway={cameraMode === "isometric"} position={[0, 1.6, plate.depth / 2]} size={[plate.width, 3.2, 0.18]} />
-      <Wall cutaway={cameraMode === "isometric"} position={[plate.width / 2, 1.6, 0]} size={[0.18, 3.2, plate.depth]} />
-      {[-1, 1].map(side => <Wall key={side} position={[-plate.width / 2, 1.6, side * (plate.depth / 4 + 0.5)]} size={[0.18, 3.2, plate.depth / 2 - 1]} />)}
-
+      <mesh position={[-plate.width/2,.08,0]} userData={{noCollision:true}}><boxGeometry args={[.08,.04,plate.depth]} /><meshStandardMaterial color="#8da8b3" /></mesh>
       <RoundedBox position={[0, -0.02, 0]} receiveShadow args={[plate.width, 0.12, plate.depth]} radius={0.025} smoothness={2}>
         <meshStandardMaterial color="#243038" roughness={0.86} />
       </RoundedBox>
@@ -436,8 +407,7 @@ function CeoCorner() {
 }
 
 function ProjectRoom({ room, open, cameraMode }: { room: PlacedRoom; open: boolean; cameraMode: CameraMode }) {
-  const width = 4.05;
-  const depth = 4.4;
+  const { width, depth, door } = PROJECT_ROOM;
   const wallY = 1.6;
   return (
     <group position={[room.x, 0, room.z]}>
@@ -447,8 +417,8 @@ function ProjectRoom({ room, open, cameraMode }: { room: PlacedRoom; open: boole
       <Wall position={[0, wallY, -depth / 2]} size={[width, 3.2, 0.08]} />
       <Wall position={[-width / 2, wallY, 0]} size={[0.08, 3.2, depth]} />
       <Wall cutaway={cameraMode === "isometric"} position={[width / 2, wallY, 0]} size={[0.08, 3.2, depth]} />
-      <Wall cutaway={cameraMode === "isometric"} position={[-1.15, wallY, depth / 2]} size={[1.5, 3.2, 0.08]} />
-      <Wall cutaway={cameraMode === "isometric"} position={[1.15, wallY, depth / 2]} size={[1.5, 3.2, 0.08]} />
+      <Wall cutaway={cameraMode === "isometric"} position={[-(width+door)/4, wallY, depth / 2]} size={[(width-door)/2, 3.2, 0.08]} />
+      <Wall cutaway={cameraMode === "isometric"} position={[(width+door)/4, wallY, depth / 2]} size={[(width-door)/2, 3.2, 0.08]} />
       <RoundedBox position={[0, 1.15, -depth / 2 + 0.12]} castShadow userData={{ noCollision: true }} args={[2.2, 0.65, 0.06]} radius={0.025} smoothness={2}>
         <meshStandardMaterial color={open ? "#f3d48a" : "#f7f1e8"} roughness={0.55} />
       </RoundedBox>
@@ -462,14 +432,16 @@ function DeskAgent({
   selected,
   dropArmed,
   localOffline,
-  timeZone,
+  routineEngine, routineVisuals,
 }: {
   agent: PlacedAgent;
   selected: boolean;
   dropArmed: boolean;
   localOffline: boolean;
-  timeZone?: string;
+  routineEngine?:RoutineEngine;routineVisuals?:RoutineVisual[];
 }) {
+  const built = useRef<Group>(null);
+  useFrame(()=>{const routine=routineEngine?.snapshot().actors.find(r=>r.id===agent.id)??routineVisuals?.find(r=>r.id===agent.id);if(built.current){built.current.visible=routine?.deskReady??true;}});
   const local = agent.event.origin === "local";
   const company = agent.form
     ? PROVIDER_LABELS[agent.form.provider]
@@ -492,7 +464,7 @@ function DeskAgent({
         { text: STATUS_LABELS[agent.event.status], kind: "meta" as const },
       ];
   return (
-    <group position={[agent.x, 0, agent.z]}>
+    <group position={[agent.x, 0, agent.z]}><group ref={built}>
       <RoundedBox position={[0, 0.4, 0.15]} castShadow receiveShadow args={[1.35, 0.72, 0.7]} radius={0.025} smoothness={2}>
         <meshStandardMaterial
           color={local ? (selected ? "#5c6b78" : "#3e4c59") : selected ? "#f7f1e8" : "#efe2d2"}
@@ -512,7 +484,7 @@ function DeskAgent({
         />
       </mesh>
       <Chair position={[0, 0, -0.55]} color={local ? "#2c3842" : "#5c4636"} />
-      <AgentFigure status={agent.event.status} local={local} />
+
       {selected ? (
         <mesh position={[0, 0.03, 0.1]} rotation={[-Math.PI / 2, 0, 0]}>
           <ringGeometry args={[0.85, 0.96, 40]} />
@@ -527,41 +499,16 @@ function DeskAgent({
           />
         </mesh>
       ) : null}
-      {(local || (agent.form && agent.form.provider !== "cursor")) && timeZone ? <LocalTimeLabel timeZone={timeZone} lines={lines} /> : <ProjectedLabel position={[0, 1.85, 0]} lines={lines} />}
-    </group>
-  );
-}
-
-function AgentFigure({ status, local }: { status: AgentStatus; local: boolean }) {
-  const ref = useRef<Group>(null);
-  useFrame(({ clock }) => {
-    if (!ref.current) return;
-    ref.current.position.y =
-      status === "working" ? Math.sin(clock.elapsedTime * 3.2) * 0.05 : 0;
-    ref.current.userData.status = status;
-  });
-  return (
-    <group
-      ref={ref}
-      name={local ? "local-figure" : "cloud-figure"}
-      position={[0, 0, -0.15]}
-      userData={{ status }}
-    >
-      <group scale={0.78}>
-        <Avatar appearance={{ ...DEFAULT_APPEARANCE, shirt: STATUS_COLOR[status], accessory: local ? "headphones" : "glasses", outfit: local ? "hoodie" : "jacket" }} />
       </group>
-      {local ? (
-        <RoundedBox position={[0.2, 1.02, 0.12]} castShadow name="local-badge" args={[0.16, 0.11, 0.04]} radius={0.025} smoothness={2}>
-          <meshStandardMaterial color="#d4b483" metalness={0.45} roughness={0.32} />
-      </RoundedBox>
-      ) : null}
+      <ProjectedLabel position={[0, 1.85, 0]} lines={routineEngine || routineVisuals?.length ? [{text:`Posto · ${lines[0].text}`,kind:"title"}] : lines} />
     </group>
   );
 }
 
-function Chair({ position, color }: { position: [number, number, number]; color: string }) {
+
+function Chair({ position, color, facing=Math.PI }: { position: [number, number, number]; color: string; facing?:number }) {
   return (
-    <group position={position}>
+    <group position={position} rotation={[0,chairRotation(facing),0]} userData={{seat:true}} onClick={event=>{event.stopPropagation();const chair=event.eventObject;const location=chair.getWorldPosition(new Vector3());let occupied=false;let root=chair;while(root.parent)root=root.parent;root.traverse(object=>{if(object.userData.personId&&object.visible&&object.getWorldPosition(new Vector3()).distanceTo(location)<.55)occupied=true;});const direction=new Vector3(0,0,1).transformDirection(chair.matrixWorld);window.dispatchEvent(new CustomEvent("office:seat",{detail:{x:location.x,z:location.z,yaw:Math.atan2(-direction.x,-direction.z),occupied,id:`${location.x.toFixed(3)}:${location.z.toFixed(3)}`}}));}}>
       <RoundedBox args={[0.5, 0.12, 0.5]} radius={0.05} smoothness={2} position={[0, 0.36, 0]} castShadow>
         <meshStandardMaterial color={color} roughness={0.88} />
       </RoundedBox>
@@ -606,11 +553,11 @@ function Plant({ position }: { position: [number, number, number] }) {
 }
 
 function MeetingNook() {
-  return <group position={[-4.7, 0, -2.4]}>
+  return <group position={[-6.4, 0, -2.4]}>
     <mesh position={[0, 0.065, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow><circleGeometry args={[1.65, 48]} /><meshStandardMaterial color="#cddccd" roughness={1} /></mesh>
     <mesh position={[0, 0.79, 0]} castShadow receiveShadow><cylinderGeometry args={[0.9, 0.9, 0.09, 48]} /><meshStandardMaterial color="#d9b18b" roughness={0.6} /></mesh>
     <mesh position={[0, 0.41, 0]} castShadow><cylinderGeometry args={[0.14, 0.35, 0.7, 20]} /><meshStandardMaterial color="#6c8b87" /></mesh>
-    {[0, Math.PI / 2, Math.PI, Math.PI * 1.5].map(angle => <group key={angle} position={[Math.sin(angle) * 1.3, 0, Math.cos(angle) * 1.3]} rotation={[0, angle, 0]}><Chair position={[0, 0, 0]} color="#718e7e" /></group>)}
+    {[0, Math.PI / 2, Math.PI, Math.PI * 1.5].map(angle => <group key={angle} position={[Math.sin(angle) * 1.3, 0, Math.cos(angle) * 1.3]} rotation={[0, angle, 0]}><Chair position={[0, 0, 0]} facing={0} color="#718e7e" /></group>)}
     <group userData={{noCollision:true}}>
       <RoundedBox args={[0.45, 0.035, 0.3]} radius={0.012} position={[0.3, 0.86, 0.2]} rotation={[0, 0.3, 0]}><meshStandardMaterial color="#de8e6f" /></RoundedBox>
       <mesh position={[-0.25, 0.92, -0.2]}><cylinderGeometry args={[0.055, 0.05, 0.15, 16]} /><meshStandardMaterial color="#f7f0df" /></mesh>
@@ -622,7 +569,7 @@ function MeetingNook() {
 
 function Lounge() {
   return (
-    <group position={[4.8, 0, 3.8]}>
+    <group position={[LOUNGE_POSITION.x, 0, LOUNGE_POSITION.z]}>
       <RoundedBox position={[0, 0.06, 0]} args={[4, 0.04, 2.8]} radius={0.02} smoothness={2} receiveShadow><meshStandardMaterial color="#badbdc" roughness={1} /></RoundedBox>
       <group position={[0, 0, 0.72]}>
         <RoundedBox args={[2.8, 0.36, 0.85]} radius={0.15} smoothness={3} position={[0, 0.32, 0]} castShadow><meshStandardMaterial color="#287888" roughness={0.93} /></RoundedBox>
@@ -630,9 +577,9 @@ function Lounge() {
         {[-1.3, 1.3].map((x) => <RoundedBox key={x} args={[0.24, 0.55, 0.85]} radius={0.08} smoothness={2} position={[x, 0.52, 0]} castShadow><meshStandardMaterial color="#327f8d" /></RoundedBox>)}
         {[-0.8, 0, 0.8].map((x) => <RoundedBox key={x} args={[0.73, 0.15, 0.65]} radius={0.06} smoothness={2} position={[x, 0.56, -0.03]} castShadow><meshStandardMaterial color="#4594a0" roughness={1} /></RoundedBox>)}
       </group>
-      <mesh position={[0, 0.38, -0.65]} castShadow><cylinderGeometry args={[0.55, 0.55, 0.08, 32]} /><meshStandardMaterial color="#d5a376" roughness={0.72} /></mesh>
-      <mesh position={[0, 0.2, -0.65]}><cylinderGeometry args={[0.1, 0.22, 0.36, 16]} /><meshStandardMaterial color="#304859" /></mesh>
-      <Plant position={[1.7, 0, -0.55]} />
+      <mesh position={[0.35, 0.38, -0.65]} castShadow><cylinderGeometry args={[0.4, 0.4, 0.08, 32]} /><meshStandardMaterial color="#d5a376" roughness={0.72} /></mesh>
+      <mesh position={[0.35, 0.2, -0.65]}><cylinderGeometry args={[0.1, 0.22, 0.36, 16]} /><meshStandardMaterial color="#304859" /></mesh>
+      <Plant position={[3, 0, -0.55]} />
       <group position={[-1.7, 0, 0.65]} userData={{ noCollision: true }}>
         <mesh position={[0, 0.85, 0]}><cylinderGeometry args={[0.022, 0.022, 1.6, 8]} /><meshStandardMaterial color="#bd915b" metalness={0.65} /></mesh>
         <mesh position={[0, 1.65, 0]} castShadow><coneGeometry args={[0.32, 0.4, 20, 1, true]} /><meshStandardMaterial color="#fff0ca" emissive="#ffd18a" emissiveIntensity={0.4} side={2} /></mesh>
@@ -666,7 +613,7 @@ function Wall({
   );
 }
 
-const projected = new Vector3();
+
 
 function PlaceLabel({
   title,
@@ -683,111 +630,4 @@ function PlaceLabel({
       lines={[{ text: title, kind: brass ? "brass" : "pill" }]}
     />
   );
-}
-
-function ProjectedLabel({
-  position,
-  lines,
-}: {
-  position: [number, number, number];
-  lines: { text: string; kind: "kicker" | "title" | "meta" | "pill" | "brass" }[];
-}) {
-  const anchor = useRef<Group>(null);
-  const card = useRef<HTMLDivElement | null>(null);
-  const { camera, size, gl, scene } = useThree();
-  const labelWorld = useRef(new Vector3());
-  const labelDirection = useRef(new Vector3());
-  const labelRay = useRef(new Raycaster());
-  const linesKey = lines.map((line) => `${line.kind}:${line.text}`).join("|");
-
-  useEffect(() => {
-    const parent = gl.domElement.parentElement;
-    const content = lines;
-    if (!parent) return;
-    const node = document.createElement("div");
-    node.style.position = "absolute";
-    node.style.top = "0";
-    node.style.left = "0";
-    node.style.pointerEvents = "none";
-    if (content.length > 1) {
-      node.style.width = content.length > 3 ? "12rem" : "10rem";
-      node.style.lineHeight = "1.5";
-      node.style.display = "grid";
-      node.style.gap = "3px";
-      node.style.border = "1px solid #e4d5c4";
-      node.style.borderRadius = "12px";
-      node.style.background = "rgba(255, 250, 244, 0.95)";
-      node.style.padding = "9px 12px";
-      node.style.textAlign = "center";
-      node.style.boxShadow = "0 8px 20px rgba(36, 28, 22, 0.16)";
-    }
-    for (const line of content) {
-      const row = document.createElement("div");
-      row.textContent = line.text;
-      if (line.kind === "kicker" || line.kind === "meta") {
-        row.style.fontSize = "10px";
-        row.style.letterSpacing = line.kind === "kicker" ? "0.1em" : "normal";
-        row.style.overflowWrap = "anywhere";
-        row.style.textTransform = line.kind === "kicker" ? "uppercase" : "none";
-        row.style.color = "#657575";
-      } else if (line.kind === "title") {
-        row.style.fontSize = "12px";
-        row.style.fontWeight = "600";
-        row.style.color = "#241c16";
-        row.style.overflow = "hidden";
-        row.style.textOverflow = "ellipsis";
-        row.style.whiteSpace = "nowrap";
-      } else if (line.kind === "brass") {
-        row.style.borderRadius = "999px";
-        row.style.background = "#1e3d34";
-        row.style.color = "#f3e0b8";
-        row.style.fontSize = "11px";
-        row.style.fontWeight = "700";
-        row.style.letterSpacing = "0.18em";
-        row.style.textTransform = "uppercase";
-        row.style.padding = "4px 12px";
-      } else {
-        row.style.maxWidth = "10rem";
-        row.style.overflow = "hidden";
-        row.style.textOverflow = "ellipsis";
-        row.style.whiteSpace = "nowrap";
-        row.style.borderRadius = "999px";
-        row.style.background = "rgba(255, 250, 244, 0.95)";
-        row.style.color = "#241c16";
-        row.style.fontSize = "11px";
-        row.style.fontWeight = "600";
-        row.style.padding = "4px 12px";
-        row.style.boxShadow = "0 6px 16px rgba(36, 28, 22, 0.12)";
-      }
-      node.appendChild(row);
-    }
-    parent.appendChild(node);
-    card.current = node;
-    return () => {
-      card.current = null;
-      node.remove();
-    };
-  }, [gl, lines, linesKey]);
-
-  useFrame(() => {
-    const node = card.current;
-    const anchorGroup = anchor.current;
-    if (!node || !anchorGroup) return;
-    anchorGroup.getWorldPosition(labelWorld.current);
-    projected.copy(labelWorld.current).project(camera);
-    const x = (projected.x * 0.5 + 0.5) * size.width;
-    const y = (-projected.y * 0.5 + 0.5) * size.height;
-    let visible =
-      projected.z > -1 && projected.z < 1 && x > -80 && x < size.width + 80 && y > -40 && y < size.height + 40;
-    if (visible) {
-      labelDirection.current.copy(labelWorld.current).sub(camera.position);
-      labelRay.current.far = Math.max(0, labelDirection.current.length() - 0.1);
-      labelRay.current.set(camera.position, labelDirection.current.normalize());
-      visible = labelRay.current.intersectObjects(scene.getObjectsByProperty("name", "office-wall"), false).length === 0;
-    }
-    node.style.display = visible ? "grid" : "none";
-    node.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
-  });
-
-  return <group ref={anchor} position={position} />;
 }
