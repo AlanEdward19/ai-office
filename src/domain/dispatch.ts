@@ -8,12 +8,13 @@ export type DropRefusal =
   | "dispatch_not_available";
 
 export type DropDecision =
-  | { ok: true; deskId: string; provider: "cursor" }
+  | { ok: true; deskId: string; provider: "cursor" | "anthropic" }
   | { ok: false; reason: DropRefusal; provider: ProviderId | null };
 
 /**
  * A card can leave the board only onto a desk that already keeps a ficha.
- * Cursor is the only company with a dispatch. The others stay refused.
+ * Cursor starts a cloud agent through its API. Anthropic starts a claude.ai
+ * session through the CLI already signed in on this machine. OpenAI stays refused.
  */
 export function decideDrop(input: {
   desk: { id: string; form: JobForm | null } | null;
@@ -27,10 +28,10 @@ export function decideDrop(input: {
   if (!input.loggedIn.includes(provider)) {
     return { ok: false, reason: "provider_not_logged_in", provider };
   }
-  if (provider !== "cursor") {
+  if (provider !== "cursor" && provider !== "anthropic") {
     return { ok: false, reason: "dispatch_not_available", provider };
   }
-  return { ok: true, deskId: input.desk.id, provider: "cursor" };
+  return { ok: true, deskId: input.desk.id, provider };
 }
 
 export function serverDispatchCopy(code: string, provider: ProviderId | null): string {
@@ -48,6 +49,15 @@ export function serverDispatchCopy(code: string, provider: ProviderId | null): s
   }
   if (code === "missing_key") {
     return "Defina LINEAR_API_KEY nesta máquina para ligar a issue ao disparo.";
+  }
+  if (code === "claude_cli_missing") {
+    return "O Claude CLI não está nesta máquina. Sem ele não há sessão na nuvem. O card continua no quadro.";
+  }
+  if (code === "claude_cloud_auth") {
+    return "A sessão Claude na nuvem pede o CLI já logado numa conta claude.ai. Uma chave de API não abre essa sessão, e nenhuma chave nova foi gravada. O card continua no quadro.";
+  }
+  if (code === "claude_cloud_rejected" || code === "claude_cloud_unreadable") {
+    return "O Claude CLI não abriu a sessão na nuvem. O avatar não foi marcado como trabalhando. O card continua no quadro.";
   }
   return "Não foi possível disparar o card. Ele continua no quadro.";
 }
@@ -174,11 +184,42 @@ export type DispatchRecord = {
   provider: ProviderId;
   cursorAgentId: string | null;
   cursorAgentUrl: string | null;
+  claudeSessionId: string | null;
+  claudeSessionUrl: string | null;
   createdAt: string;
 };
 
+export function dispatchSessionLink(
+  record: Pick<DispatchRecord, "provider" | "cursorAgentUrl" | "claudeSessionUrl">,
+): { href: string; label: string } | null {
+  if (record.provider === "cursor" && record.cursorAgentUrl) {
+    return { href: record.cursorAgentUrl, label: "cloud agent" };
+  }
+  if (record.provider === "anthropic" && record.claudeSessionUrl) {
+    return { href: record.claudeSessionUrl, label: "sessão na nuvem" };
+  }
+  return null;
+}
+
 export function serializeDispatches(dispatches: readonly DispatchRecord[]): string {
   return JSON.stringify({ version: 1, dispatches });
+}
+
+function storedClaudeSession(
+  idValue: unknown,
+  urlValue: unknown,
+): { claudeSessionId: string | null; claudeSessionUrl: string | null } {
+  const id =
+    typeof idValue === "string" && /^session_[A-Za-z0-9]+$/.test(idValue) ? idValue : null;
+  const url =
+    typeof urlValue === "string" &&
+    /^https:\/\/claude\.ai\/code\/session_[A-Za-z0-9]+$/.test(urlValue)
+      ? urlValue
+      : null;
+  if (!url) return { claudeSessionId: id, claudeSessionUrl: null };
+  const fromUrl = url.slice("https://claude.ai/code/".length);
+  if (id && id !== fromUrl) return { claudeSessionId: null, claudeSessionUrl: null };
+  return { claudeSessionId: fromUrl, claudeSessionUrl: url };
 }
 
 export function loadDispatches(raw: string | null): DispatchRecord[] {
@@ -208,6 +249,7 @@ export function loadDispatches(raw: string | null): DispatchRecord[] {
             typeof record.cursorAgentUrl === "string" && record.cursorAgentUrl
               ? record.cursorAgentUrl
               : null,
+          ...storedClaudeSession(record.claudeSessionId, record.claudeSessionUrl),
           createdAt: record.createdAt,
         },
       ];
