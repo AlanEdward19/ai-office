@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   cursorCreateBody,
+  dispatchHistoryIdentity,
+  dispatchExecution,
   cursorDispatchPrompt,
   decideDrop,
   loadDispatches,
@@ -158,6 +160,9 @@ test("a drop uses the ficha and dispatches every authenticated provider", () => 
   const loggedOut = decideDrop({ desk: cursorDesk, loggedIn: [] });
   assert.equal(loggedOut.ok, false);
   if (!loggedOut.ok) assert.equal(loggedOut.reason, "provider_not_logged_in");
+  const claudeOut = decideDrop({ desk: claudeDesk, loggedIn: [] });
+  assert.equal(claudeOut.ok, false);
+  if (!claudeOut.ok) assert.equal(claudeOut.reason, "provider_not_logged_in");
   const claude = decideDrop({ desk: claudeDesk, loggedIn: ["anthropic"] });
   assert.deepEqual(claude, { ok: true, deskId: "desk-claude", provider: "anthropic" });
   assert.match(refusalCopy("provider_not_logged_in", "anthropic"), /Anthropic/);
@@ -171,6 +176,8 @@ test("a drop uses the ficha and dispatches every authenticated provider", () => 
   }
   const cursor = decideDrop({ desk: cursorDesk, loggedIn: ["cursor"] });
   assert.deepEqual(cursor, { ok: true, deskId: "desk-cursor", provider: "cursor" });
+  assert.match(serverDispatchCopy("claude_cloud_auth", "anthropic"), /claude\.ai/);
+  assert.match(serverDispatchCopy("claude_cloud_rejected", "anthropic"), /não foi marcado como trabalhando/);
 });
 
 test("cursor dispatch names the linear issue and does not carry secrets", () => {
@@ -243,6 +250,8 @@ test("the dispatched cursor desk receives the working event", () => {
       provider: "cursor",
       cursorAgentId: "bc-1",
       cursorAgentUrl: "https://cursor.com/agents/bc-1",
+      claudeSessionId: null,
+      claudeSessionUrl: null,
       createdAt: "2026-09-30T12:00:00.000Z",
     },
     {
@@ -252,6 +261,8 @@ test("the dispatched cursor desk receives the working event", () => {
       provider: "grok" as never,
       cursorAgentId: null,
       cursorAgentUrl: null,
+      claudeSessionId: null,
+      claudeSessionUrl: null,
       createdAt: "2026-09-30T12:01:00.000Z",
     },
   ]);
@@ -260,4 +271,24 @@ test("the dispatched cursor desk receives the working event", () => {
   assert.equal(preferredCursorDeskId(loaded), "desk-drop");
   assert.equal(nearestDeskId([{ id: "a", x: 0, y: 0 }, { id: "b", x: 40, y: 0 }], 10, 0, 96), "a");
   assert.equal(nearestDeskId([{ id: "a", x: 0, y: 0 }], 200, 0, 96), null);
+});
+
+test("merged dispatch history uses real execution identity across all providers", () => {
+  assert.deepEqual(dispatchHistoryIdentity("openai", "cloud", []), { origin: "local", cloudId: null });
+  assert.deepEqual(dispatchHistoryIdentity("anthropic", "cloud", []), { origin: "local", cloudId: null });
+  assert.deepEqual(dispatchHistoryIdentity("anthropic", "cloud", [], true), { origin: "cloud", cloudId: null });
+  const record = { deskId: "desk", provider: "anthropic" as const, issueId: "issue", projectId: "project", createdAt: "2026-10-01T00:00:00Z", claudeSessionId: "sesn-real", claudeSessionUrl: null, cursorAgentId: null, cursorAgentUrl: null, linked: true };
+  assert.deepEqual(dispatchHistoryIdentity("anthropic", "cloud", [record]), { origin: "cloud", cloudId: "sesn-real" });
+  assert.deepEqual(dispatchHistoryIdentity("openai", "cloud", [record]), { origin: "local", cloudId: null });
+  assert.deepEqual(dispatchHistoryIdentity("cursor", "cloud", [{ ...record, cursorAgentId: "cursor-real" }]), { origin: "cloud", cloudId: "cursor-real" });
+});
+
+test("merged dispatch execution rejects unsupported modes without mislabeling managed work", () => {
+  assert.equal(dispatchExecution("cursor", undefined), "cloud");
+  assert.equal(dispatchExecution("anthropic", undefined), "cloud");
+  assert.equal(dispatchExecution("openai", undefined), "managed");
+  assert.equal(dispatchExecution("anthropic", "managed"), "managed");
+  assert.equal(dispatchExecution("cursor", "managed"), null);
+  assert.equal(dispatchExecution("openai", "cloud"), null);
+  assert.equal(dispatchExecution("anthropic", "anything"), null);
 });

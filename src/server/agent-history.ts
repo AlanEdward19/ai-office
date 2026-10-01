@@ -55,3 +55,8 @@ export async function readAgentHistory(query:{provider:ProviderId;origin:'local'
 export async function recordManagedHistory(input:{provider:'openai'|'anthropic'|'cursor';deskId:string;sourceId:string;startedAt:string;status:'running'|'completed'|'failed'|'stopped';summary?:string|null;title?:string|null}){
  const row=historyExecution({...input,origin:input.provider==='cursor'?'cloud':'local',cloudId:input.provider==='cursor'?input.sourceId.split(':')[0]:null,agentId:input.deskId,observedAt:new Date().toISOString(),endedAt:input.status==='running'?null:new Date().toISOString()},secrets());if(row)await retainHistory([row]);
 }
+
+/** Provider session status is real; idle/running do not prove a completed execution. */
+export async function recordClaudeCloudHistory(sourceId:string,agentId:string|null,status?:'running'|'idle'|'terminated'){
+ const row=historyExecution({provider:'anthropic',origin:'cloud',sourceId,cloudId:sourceId,agentId,observedAt:new Date().toISOString(),status:status==='terminated'?'stopped':'unknown',summary:status?`Estado observado da sessão Claude cloud: ${status}.` :null},secrets());if(row)await retainHistory([row]);
+}

@@ -51,7 +51,7 @@ export function createAgentRoutines(){
    const ids=new Set(input.agents.map(a=>a.id));for(const [id,actor]of actors)if(!ids.has(id)){cancel(actor,'Interlocutor saiu do escritório.');actors.delete(id);}
    for(const agent of input.agents){let actor=actors.get(agent.id);if(!actor){const waiting=pendingHires.has(agent.id);const point=waiting?entry:atDesk(agent,input);if(!point)continue;actor=make(agent.id,point,input.now,waiting);actors.set(agent.id,actor);}
     delete actor.seatBlocked;
-    const busy=agent.event.status==='working'||agent.event.status==='blocked';
+    const busy=agent.claudeCloudLabel?agent.claudeCloudLabel==='running':agent.event.status==='working'||agent.event.status==='blocked';
     if(busy){actor.idleSince=null;if(!actor.wasWorking&&actor.command)cancel(actor,'O agente voltou ao trabalho.');if(actor.state==='absent'){actor.x=entry.x;actor.z=entry.z;actor.visible=true;actor.state='arriving';actor.goal=null;}if(actor.state!=='waiting'&&actor.state!=='assembling'&&actor.state!=='arriving')actor.state='returning';}
     else if(actor.wasWorking||actor.idleSince===null)actor.idleSince=input.now;
     actor.wasWorking=busy;

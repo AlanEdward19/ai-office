@@ -90,7 +90,7 @@ export function OfficeCall(props:Props) {
   es.addEventListener('roster',e=>{try{const r=JSON.parse((e as MessageEvent).data) as PresenceRoster;if(r.type==='roster'&&r.self===self.current&&Array.isArray(r.peers)){const first=!snapshot.current;receiveRoster(r);if(first)void publishPresence();}}catch{}});
   es.addEventListener('signal',e=>{try{void receiveSignal(JSON.parse((e as MessageEvent).data));}catch{}});
   es.addEventListener('notice',e=>{try{setHint(JSON.parse((e as MessageEvent).data).message);}catch{}});
-  for(const channel of ['snapshot','local-agent','local-presence','local-notice','cloud-agent','cloud-notice'])es.addEventListener(channel,e=>{try{latest.current.onEvent(channel,JSON.parse((e as MessageEvent).data));}catch{}});
+  for(const channel of ['claude-status','claude-notice','snapshot','local-agent','local-presence','local-notice','cloud-agent','cloud-notice'])es.addEventListener(channel,e=>{try{latest.current.onEvent(channel,JSON.parse((e as MessageEvent).data));}catch{}});
   es.onopen=()=>{setConnected(true);latest.current.onConnected(true);setHint('');};
   es.onerror=()=>{setConnected(false);latest.current.onConnected(false);setHint('Reconectando presença…');scope.current=null;reset();latest.current.onRoster(null);};
   const timer=window.setInterval(()=>void publishPresence(),180);

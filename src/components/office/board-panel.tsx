@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { dispatchForIssue, type DispatchRecord } from "@/domain/dispatch";
+import { dispatchForIssue, dispatchSessionLink, type DispatchRecord } from "@/domain/dispatch";
 import type { RoomIssue } from "@/domain/issues";
 import { PROVIDER_LABELS } from "@/domain/providers";
 import { Button } from "@/components/ui/button";
@@ -99,6 +99,7 @@ export function BoardPanel({
         ) : null}
         {issues.map((issue) => {
           const dispatch = dispatchForIssue(dispatches, projectId, issue.id);
+          const sessionLink = dispatch ? dispatchSessionLink(dispatch) : null;
           return (
             <article key={issue.id} className="rounded-2xl border border-border bg-white/85 p-3">
               <p className="text-[0.65rem] tracking-[0.14em] text-[#8c7b6b] uppercase">
@@ -120,11 +121,11 @@ export function BoardPanel({
               {dispatch ? (
                 <p className="mt-2 text-xs text-[#5c5148]">
                   Na mesa · {PROVIDER_LABELS[dispatch.provider]}
-                  {dispatch.cursorAgentUrl ? (
+                  {sessionLink ? (
                     <>
                       {" · "}
-                      <a href={dispatch.cursorAgentUrl} target="_blank" rel="noreferrer" className="underline">
-                        cloud agent
+                      <a href={sessionLink.href} target="_blank" rel="noreferrer" className="underline">
+                        {sessionLink.label}
                       </a>
                     </>
                   ) : null}

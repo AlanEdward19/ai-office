@@ -2,6 +2,7 @@
 import {useEffect,useRef,useState,type RefObject} from 'react';
 import {useFrame} from '@react-three/fiber';
 import type {Group} from 'three';
+import {placedStatusText} from "@/domain/claude-cloud-status";
 import {agentSeatPose,occupiedHumanSeats} from '@/domain/seating';
 import {LocalTimeLabel} from './local-time-label';
 import {ProjectedLabel} from './projected-label';
@@ -27,11 +28,11 @@ export function AgentActors({agents,floor,host,engine,shared,commands,idleMs,use
  });
  const occupiedSeats=occupiedHumanSeats(presence?.peers??[],presence?.self,user,floor);
  const snapshot=host?visuals:shared;
- return floor==='ground'?<group userData={{noCollision:true}}>{snapshot.map(routine=>{const agent=agents.find(a=>a.id===routine.id);return <RoutineActor key={routine.id} routine={routine} agent={agent} occupiedSeats={occupiedSeats} engine={host?engine:undefined} name={routine.id==='office:hr'?'RH':agent?.displayName??agent?.form?.role??agent?.event.provider??'Agente'} timeZone={agent?.event.origin==='local'?timeZone:undefined} local={agent?.event.origin==='local'} reduced={reduced} onClick={()=>{if(agent)onAgent?.(agent.id);}} />;})}
+ return floor==='ground'?<group userData={{noCollision:true}}>{snapshot.map(routine=>{const agent=agents.find(a=>a.id===routine.id);return <RoutineActor key={routine.id} routine={routine} agent={agent} occupiedSeats={occupiedSeats} engine={host?engine:undefined} statusLabel={agent?.claudeCloudLabel?placedStatusText(agent):undefined} name={routine.id==='office:hr'?'RH':agent?.displayName??agent?.form?.role??agent?.event.provider??'Agente'} timeZone={agent?.event.origin==='local'?timeZone:undefined} local={agent?.event.origin==='local'} reduced={reduced} onClick={()=>{if(agent)onAgent?.(agent.id);}} />;})}
   {snapshot.filter(r=>routinePresentation(r,r,reduced,0,0).building).map(r=>{const agent=agents.find(a=>a.id===r.id);return agent?<group key={`build:${r.id}`} position={[agent.x,0,agent.z]} scale={[1,routinePresentation(r,r,reduced,0,0).buildScale,1]}><mesh position={[0,.76,.15]}><boxGeometry args={[1.42,.08,.78]} /><meshStandardMaterial color="#d8c3a5" /></mesh><mesh position={[0,.4,.15]}><boxGeometry args={[1.2,.72,.6]} /><meshStandardMaterial color="#efe2d2" /></mesh><mesh position={[0,.35,-.55]}><boxGeometry args={[.5,.12,.5]} /><meshStandardMaterial color="#507b7f" /></mesh><mesh position={[0,.6,-.78]}><boxGeometry args={[.5,.5,.1]} /><meshStandardMaterial color="#507b7f" /></mesh></group>:null;})}
  </group>:null;
 }
-function RoutineActor({routine,engine,name,local,reduced,onClick,timeZone,agent,occupiedSeats}:{occupiedSeats:readonly {x:number;z:number}[];agent?:PlacedAgent;timeZone?:string;routine:RoutineVisual;engine?:RoutineEngine;name:string;local?:boolean;reduced:boolean;onClick:()=>void}){
+function RoutineActor({routine,engine,name,local,reduced,onClick,timeZone,agent,occupiedSeats,statusLabel}:{statusLabel?:string;occupiedSeats:readonly {x:number;z:number}[];agent?:PlacedAgent;timeZone?:string;routine:RoutineVisual;engine?:RoutineEngine;name:string;local?:boolean;reduced:boolean;onClick:()=>void}){
  const group=useRef<Group>(null),body=useRef<Group>(null),bag=useRef<Group>(null),motion=useRef<AvatarMotion>({moving:false,gesture:null,gestureStarted:0}),previous=useRef({x:routine.x,z:routine.z});
  useFrame(({clock},dt)=>{const current=engine?(routine.id==='office:hr'?engine.snapshot().hr:engine.snapshot().actors.find(r=>r.id===routine.id))??routine:routine;if(!group.current)return;group.current.visible=current.visible;const seat=agentSeatPose(current,agent,occupiedSeats);group.current.position.set(seat.x,0,seat.z);group.current.rotation.y=seat.yaw;motion.current.seated=seat.seated;motion.current.activity=seat.activity;const presentation=routinePresentation(current,previous.current,reduced,dt,clock.elapsedTime,body.current?.rotation.x);motion.current.moving=presentation.moving;previous.current={x:current.x,z:current.z};if(body.current){body.current.rotation.x=seat.seatBlocked?0:presentation.lean;body.current.position.y=seat.seated?.08:presentation.bob;}if(bag.current)bag.current.visible=current.state==='packing'||current.state==='leaving'||current.id==='office:hr';});
  return <group ref={group} name={`agent-person:${routine.id}`} userData={{personId:routine.id,noCollision:true}} onClick={event=>{event.stopPropagation();onClick();}}>
@@ -39,6 +40,6 @@ function RoutineActor({routine,engine,name,local,reduced,onClick,timeZone,agent,
 
   <group ref={bag} position={[-.35,.4,0]}><mesh><boxGeometry args={[.26,.3,.12]} /><meshStandardMaterial color="#c79b71" /></mesh><mesh position={[0,.18,0]}><torusGeometry args={[.06,.012,6,12,Math.PI]} /><meshStandardMaterial color="#66554b" /></mesh></group>
   <mesh position={[0,.02,0]} rotation={[-Math.PI/2,0,0]}><ringGeometry args={[.35,.39,24]} /><meshStandardMaterial color={routine.state==='approaching'?'#ddb15f':'#85a7a4'} transparent opacity={.65} /></mesh>
-  {timeZone?<LocalTimeLabel timeZone={timeZone} lines={[{text:name,kind:"title"},{text:agentSeatPose(routine,agent,occupiedSeats).seatBlocked||routine.seatBlocked?"Aguardando cadeira livre":captions[routine.state],kind:"meta"}]} />:<ProjectedLabel position={[0,1.75,0]} lines={[{text:name,kind:"title"},{text:agentSeatPose(routine,agent,occupiedSeats).seatBlocked||routine.seatBlocked?"Aguardando cadeira livre":captions[routine.state],kind:"meta"}]} />}
+  {timeZone?<LocalTimeLabel timeZone={timeZone} lines={[{text:name,kind:"title"},{text:agentSeatPose(routine,agent,occupiedSeats).seatBlocked||routine.seatBlocked?"Aguardando cadeira livre":statusLabel??captions[routine.state],kind:"meta"}]} />:<ProjectedLabel position={[0,1.75,0]} lines={[{text:name,kind:"title"},{text:agentSeatPose(routine,agent,occupiedSeats).seatBlocked||routine.seatBlocked?"Aguardando cadeira livre":statusLabel??captions[routine.state],kind:"meta"}]} />}
  </group>;
 }

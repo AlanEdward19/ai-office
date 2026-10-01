@@ -46,6 +46,15 @@ export function serverDispatchCopy(code: string, provider: ProviderId | null): s
   if (code === "missing_key") {
     return "Defina LINEAR_API_KEY nesta máquina para ligar a issue ao disparo.";
   }
+  if (code === "claude_cli_missing") {
+    return "O Claude CLI não está nesta máquina. Sem ele não há sessão na nuvem. O card continua no quadro.";
+  }
+  if (code === "claude_cloud_auth") {
+    return "A sessão Claude na nuvem pede o CLI já logado numa conta claude.ai. Uma chave de API não abre essa sessão, e nenhuma chave nova foi gravada. O card continua no quadro.";
+  }
+  if (code === "claude_cloud_rejected" || code === "claude_cloud_unreadable") {
+    return "O Claude CLI não abriu a sessão na nuvem. O avatar não foi marcado como trabalhando. O card continua no quadro.";
+  }
   return "Não foi possível disparar o card. Ele continua no quadro.";
 }
 
@@ -171,11 +180,42 @@ export type DispatchRecord = {
   provider: ProviderId;
   cursorAgentId: string | null;
   cursorAgentUrl: string | null;
+  claudeSessionId: string | null;
+  claudeSessionUrl: string | null;
   createdAt: string;
 };
 
+export function dispatchSessionLink(
+  record: Pick<DispatchRecord, "provider" | "cursorAgentUrl" | "claudeSessionUrl">,
+): { href: string; label: string } | null {
+  if (record.provider === "cursor" && record.cursorAgentUrl) {
+    return { href: record.cursorAgentUrl, label: "cloud agent" };
+  }
+  if (record.provider === "anthropic" && record.claudeSessionUrl) {
+    return { href: record.claudeSessionUrl, label: "sessão na nuvem" };
+  }
+  return null;
+}
+
 export function serializeDispatches(dispatches: readonly DispatchRecord[]): string {
   return JSON.stringify({ version: 1, dispatches });
+}
+
+function storedClaudeSession(
+  idValue: unknown,
+  urlValue: unknown,
+): { claudeSessionId: string | null; claudeSessionUrl: string | null } {
+  const id =
+    typeof idValue === "string" && /^session_[A-Za-z0-9]+$/.test(idValue) ? idValue : null;
+  const url =
+    typeof urlValue === "string" &&
+    /^https:\/\/claude\.ai\/code\/session_[A-Za-z0-9]+$/.test(urlValue)
+      ? urlValue
+      : null;
+  if (!url) return { claudeSessionId: id, claudeSessionUrl: null };
+  const fromUrl = url.slice("https://claude.ai/code/".length);
+  if (id && id !== fromUrl) return { claudeSessionId: null, claudeSessionUrl: null };
+  return { claudeSessionId: fromUrl, claudeSessionUrl: url };
 }
 
 export function loadDispatches(raw: string | null): DispatchRecord[] {
@@ -205,6 +245,7 @@ export function loadDispatches(raw: string | null): DispatchRecord[] {
             typeof record.cursorAgentUrl === "string" && record.cursorAgentUrl
               ? record.cursorAgentUrl
               : null,
+          ...storedClaudeSession(record.claudeSessionId, record.claudeSessionUrl),
           createdAt: record.createdAt,
         },
       ];
@@ -234,4 +275,22 @@ export function dispatchForIssue(
     dispatches.find((record) => record.projectId === projectId && record.issueId === issueId) ??
     null
   );
+}
+
+/** History follows execution identity, never the physical desk's display lane. */
+export function dispatchHistoryIdentity(provider: ProviderId, origin: "local" | "cloud", records: readonly DispatchRecord[], claudeCloudKnown = false) {
+  const latest = [...records].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const cursorId = latest.find(record => record.cursorAgentId)?.cursorAgentId ?? null;
+  const claudeId = latest.find(record => record.claudeSessionId)?.claudeSessionId ?? null;
+  if (provider === "cursor") return { origin, cloudId: cursorId };
+  if (provider === "anthropic" && (claudeId || claudeCloudKnown)) return { origin: "cloud" as const, cloudId: claudeId };
+  return { origin: "local" as const, cloudId: null };
+}
+
+export function dispatchExecution(provider: ProviderId, requested: unknown): "managed" | "cloud" | null {
+  if (requested !== undefined && requested !== "managed" && requested !== "cloud") return null;
+  const mode = requested ?? (provider === "openai" ? "managed" : "cloud");
+  if (provider === "cursor" && mode !== "cloud") return null;
+  if (provider === "openai" && mode !== "managed") return null;
+  return mode;
 }

@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { STATUS_LABELS } from "@/domain/agent-event";
-import type { DispatchRecord } from "@/domain/dispatch";
+import { dispatchSessionLink, dispatchHistoryIdentity, type DispatchRecord } from "@/domain/dispatch";
 import type { PlacedAgent } from "@/domain/placement";
 import type { PlacedRoom } from "@/domain/rooms";
 import { PROVIDER_LABELS } from "@/domain/providers";
@@ -29,6 +29,7 @@ export function AgentPanel({ agent, name, host, offline, dispatches, rooms, onCl
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const cursorAgentId = [...dispatches].sort((a,b) => b.createdAt.localeCompare(a.createdAt)).find(d => d.cursorAgentId)?.cursorAgentId ?? null;
+  const historyIdentity = dispatchHistoryIdentity(provider, agent.event.origin, dispatches, ["running","idle","terminated"].includes(agent.claudeCloudLabel??""));
   const identity = { deskId: agent.id, provider, cursorAgentId };
 
   useEffect(() => {
@@ -87,9 +88,9 @@ export function AgentPanel({ agent, name, host, offline, dispatches, rooms, onCl
           <form onSubmit={e => { e.preventDefault(); void send("message"); }}><textarea aria-label="Mensagem para o agente" maxLength={12000} className="min-h-24 w-full resize-y rounded-xl border border-slate-200 bg-white p-3 text-sm" placeholder="Explique o que você precisa…" value={message} onChange={e => setMessage(e.target.value)} /><Button className="mt-2 w-full" disabled={sending || running || !message.trim() || (provider === "cursor" && !cursorAgentId)}>{sending ? "Enviando…" : running ? "Agente trabalhando…" : "Enviar mensagem"}</Button></form>
         </>}
       </div>}
-      {tab === "history" && (host ? <AgentHistoryPanel agentId={agent.id} provider={provider} origin={provider === "cursor" ? agent.event.origin : "local"} cloudId={cursorAgentId} /> : <p className="py-5 text-sm text-slate-500">Histórico privado disponível somente ao anfitrião.</p>)}
+      {tab === "history" && (host ? <AgentHistoryPanel agentId={agent.id} provider={provider} origin={historyIdentity.origin} cloudId={historyIdentity.cloudId} /> : <p className="py-5 text-sm text-slate-500">Histórico privado disponível somente ao anfitrião.</p>)}
       {tab === "cards" && <div className="space-y-3">
-        {dispatches.map((d,i) => <div key={`${d.issueId}-${i}`} className="rounded-xl border border-slate-200 p-4"><p className="text-sm font-semibold">{rooms.find(r => r.id === d.projectId)?.name ?? "Projeto"}</p><p className="mt-1 text-xs text-slate-500">Atribuído em {new Date(d.createdAt).toLocaleString("pt-BR")}</p>{d.cursorAgentUrl && <a className="mt-2 block text-sm underline" href={d.cursorAgentUrl} target="_blank" rel="noreferrer">Abrir execução no Cursor</a>}<button className="mt-2 text-sm underline" onClick={() => onBoard(d.projectId)}>Ver card no quadro</button></div>)}
+        {dispatches.map((d,i) => <div key={`${d.issueId}-${i}`} className="rounded-xl border border-slate-200 p-4"><p className="text-sm font-semibold">{rooms.find(r => r.id === d.projectId)?.name ?? "Projeto"}</p><p className="mt-1 text-xs text-slate-500">Atribuído em {new Date(d.createdAt).toLocaleString("pt-BR")}</p>{dispatchSessionLink(d) && <a className="mt-2 block text-sm underline" href={dispatchSessionLink(d)!.href} target="_blank" rel="noreferrer">Abrir {dispatchSessionLink(d)!.label}</a>}<button className="mt-2 text-sm underline" onClick={() => onBoard(d.projectId)}>Ver card no quadro</button></div>)}
         {!dispatches.length && <p className="py-4 text-sm text-slate-500">Nenhum card atribuído a esta mesa.</p>}
         {host && onAssign && <Button onClick={() => void onAssign()}>Atribuir card carregado</Button>}
         <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Puxar do quadro</p>{rooms.map(r => <Button key={r.id} variant="outline" className="mr-2 mb-2" onClick={() => onBoard(r.id)}>{r.name}</Button>)}

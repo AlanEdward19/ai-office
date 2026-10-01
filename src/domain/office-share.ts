@@ -1,6 +1,7 @@
 import {readRoutineVisual,type RoutineVisual} from "./agent-routines";
 import { readTimeZone } from "./office-time";
 import { isAgentEvent, type AgentEvent } from "./agent-event";
+import { isClaudeCloudLabel } from "./claude-cloud-status";
 import { presentLocalEvent } from "./local-hooks";
 import type { PlacedAgent } from "./placement";
 import { isProviderId } from "./providers";
@@ -76,7 +77,7 @@ function clip(value: unknown, max: number): string {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
 }
 
-/** Rebuilds a scene from the seven agent fields. Extra keys are dropped. */
+/** Rebuilds a scene from the status fields. A Claude cloud label is kept only from the closed set. Extra keys are dropped. */
 export function readSharedScene(value: unknown): SharedScene | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
@@ -110,10 +111,16 @@ export function readSharedScene(value: unknown): SharedScene | null {
     if (!event) continue;
     const form = readForm(agent.form);
     if (form === undefined) continue;
-    agents.push({ id, x, z, form, event, ...(clip(agent.displayName, 60) ? { displayName: clip(agent.displayName, 60) } : {}) });
+    const claudeCloudLabel = readClaudeLabel(agent.claudeCloudLabel);
+    agents.push({ id, x, z, form, event, claudeCloudLabel, ...(clip(agent.displayName,60)?{displayName:clip(agent.displayName,60)}:{}) });
   }
 
   return { hostName, ...(readTimeZone(record.hostTimeZone) ? { hostTimeZone: readTimeZone(record.hostTimeZone) } : {}), localOffline: record.localOffline, rooms, agents, ...(Array.isArray(record.routines) ? {routines:record.routines.slice(0,49).flatMap((r:unknown)=>{const visual=readRoutineVisual(r);return visual?[visual]:[];})} : {}) };
+}
+
+function readClaudeLabel(value: unknown): string | null {
+  if (value == null) return null;
+  return isClaudeCloudLabel(value) ? value : null;
 }
 
 function readForm(value: unknown): PlacedAgent["form"] | undefined {

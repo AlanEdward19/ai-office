@@ -2,14 +2,14 @@
 import {useEffect,useRef} from "react";
 import {useFrame,useThree} from "@react-three/fiber";
 import {Vector3,Raycaster,type Group} from "three";
-export type LabelLine = { text: string; kind: "kicker" | "title" | "meta" | "pill" | "brass" };
+export type LabelLine = { text: string; kind: "kicker" | "title" | "meta" | "status" | "pill" | "brass" };
 const projected=new Vector3();
 export function ProjectedLabel({
   position,
   lines,
 }: {
   position: [number, number, number];
-  lines: { text: string; kind: "kicker" | "title" | "meta" | "pill" | "brass" }[];
+  lines: { text: string; kind: "kicker" | "title" | "meta" | "status" | "pill" | "brass" }[];
 }) {
   const anchor = useRef<Group>(null);
   const card = useRef<HTMLDivElement | null>(null);
@@ -43,7 +43,7 @@ export function ProjectedLabel({
     for (const line of content) {
       const row = document.createElement("div");
       row.textContent = line.text;
-      if (line.kind === "kicker" || line.kind === "meta") {
+      if (line.kind === "status") {row.style.fontSize="11px";row.style.lineHeight="1.35";row.style.overflowWrap="anywhere";row.style.color=line.text.startsWith("falha:")?"#b42318":line.text==="running"?"#b7791f":line.text==="completed"?"#1f7a4d":"#8c7b6b";} else if (line.kind === "kicker" || line.kind === "meta") {
         row.style.fontSize = "10px";
         row.style.letterSpacing = line.kind === "kicker" ? "0.1em" : "normal";
         row.style.overflowWrap = "anywhere";

@@ -11,6 +11,8 @@ export type PlacedAgent = {
   z: number;
   form: JobForm | null;
   event: AgentEvent;
+  /** Managed Agents status, unknown, or a failure. Null on every other desk. */
+  claudeCloudLabel?: string | null;
 };
 
 

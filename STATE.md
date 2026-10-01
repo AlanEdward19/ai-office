@@ -57,3 +57,15 @@
 - Nova orientação do usuário: gabinete/responsável por projeto/andar vem do Linear; CEO geral pode coexistir, sem canto global fixo obrigatório.
 - Plano office-builder cobre editor, andares fixos/projeto, elevador/portas/acessos, áreas IA local/cloud/RH e mesas de pessoas/agentes, rascunho/publicação e migração.
 - Documento89linhas, validate_plan exit0 sem erros/avisos; propostas de persistência/contratos/limites aguardam revisão. Apenas planejamento, sem alterar código/runtime ou commitar.
+
+## Integração remota para push (2026-10-01)
+- Origin/main trouxe suporte Claude cloud; seis conflitos conciliados sem retirar disparo gerenciado OpenAI/Anthropic, rotinas ou reuniões.
+- Status Claude usa SSE multiplexado; histórico distingue identidade real e permite alternar local/cloud no Claude. execution inválida é rejeitada.
+- Gate definitivo exit0: build/TS/lint/134 testes, zero skips; revisão visual permanece pendente. Integração preserva o histórico remoto, sem force push.
+
+## Integração remota para push (2026-10-01)
+- Conflitos com origin/main conciliados: todos os provedores gerenciados preservados, Claude cloud/status/link adicionados, Anthropic gerenciado explicitamente disponível.
+- Claude status usa o SSE multiplexado do escritório; histórico segue identidade real da execução (OpenAI gerenciado local; Claude cloud por sessão/metadata), sem inventar conclusão.
+- Modos incompatíveis/desconhecidos de execução recusados; duas regressões cobrem matriz e histórico. Links de cards atendem Cursor e Claude.
+- Gates integrados: 134 testes verdes, build/TS/lint OK; seletor de origem preserva acesso local/cloud Anthropic. Gate final confirma o diff definitivo. Git merge/commit/push a cargo do orquestrador.
+- Visual permanece não verificado pelo bloqueio de navegador já registrado.
