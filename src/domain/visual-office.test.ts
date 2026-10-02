@@ -39,6 +39,44 @@ test('social gestures expire after three seconds', async () => {
     assert.equal(activeGesture(gesture, 3), null);
   }
 });
+
+test('a wave or a dance keeps the hand outside the face', async () => {
+  const { gestureArmPose, gestureBodyPose } = await import('./character');
+  const rotateX = (y: number, z: number, angle: number) => ({
+    y: y * Math.cos(angle) - z * Math.sin(angle),
+    z: y * Math.sin(angle) + z * Math.cos(angle),
+  });
+  const rotateZ = (x: number, y: number, angle: number) => ({
+    x: x * Math.cos(angle) - y * Math.sin(angle),
+    y: x * Math.sin(angle) + y * Math.cos(angle),
+  });
+  // Matches the avatar: shoulders at x=±0.3 y=1.2, hand center y=-0.34, fingertips y=-0.44, head at y=1.48.
+  const outsideFace = (gesture: 'wave' | 'dance', time: number) => {
+    const headZ = gestureBodyPose(gesture, time).headZ;
+    for (const side of [0, 1] as const) {
+      const pose = gestureArmPose(gesture, time, side);
+      for (const along of [-0.34, -0.44]) {
+        const pitched = rotateX(along, 0, pose.x);
+        const turned = rotateZ(0, pitched.y, pose.z);
+        const dx = (side === 0 ? -0.3 : 0.3) + turned.x;
+        const dy = 1.2 + turned.y - 1.48;
+        const dz = pitched.z;
+        const upright = rotateZ(dx, dy, -headZ);
+        const clear = (upright.x / 0.34) ** 2 + (upright.y / 0.36) ** 2 + (dz / 0.36) ** 2;
+        assert.ok(clear > 1, `${gesture} hand enters the face at ${time}`);
+      }
+    }
+  };
+  for (let step = 0; step <= 36; step += 1) {
+    const time = (step / 36) * 3;
+    outsideFace('wave', time);
+    outsideFace('dance', time);
+  }
+  const raised = gestureArmPose('wave', 0, 1);
+  assert.ok(raised.z > 1.8);
+  assert.ok(gestureArmPose('dance', 0, 0).z < -1.8);
+  assert.ok(gestureArmPose('dance', 0, 1).z > 1.8);
+});
 test('animation blend is bounded and frame-rate independent', async () => {
   const { blendMotion } = await import('./character');
   const one = blendMotion(0, true, 0.1);

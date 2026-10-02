@@ -4,7 +4,7 @@ import { RoundedBox } from '@react-three/drei/core/RoundedBox';
 import { useFrame } from '@react-three/fiber';
 import { useRef, type RefObject } from 'react';
 import type { Group } from 'three';
-import { activeGesture, blendMotion, resetReducedAvatar, applyAvatarActivity, type Appearance, type AvatarMotion } from '@/domain/character';
+import { activeGesture, blendMotion, gestureArmPose, gestureBodyPose, resetReducedAvatar, applyAvatarActivity, type Appearance, type AvatarMotion } from '@/domain/character';
 
 function SoftPart({ position, scale, color }: { position: [number, number, number]; scale: [number, number, number]; color: string }) {
   return <mesh position={position} scale={scale} castShadow><sphereGeometry args={[1, 20, 16]} /><meshStandardMaterial color={color} roughness={0.75} /></mesh>;
@@ -23,22 +23,29 @@ export function Avatar({ appearance: a, motion, preview = false, reducedMotion =
     const t = clock.elapsedTime;
     blend.current = blendMotion(blend.current, motion?.current.moving ?? false, dt);
     const gesture = motion ? activeGesture(motion.current.gesture, t - motion.current.gestureStarted) : null;
+    const body = gesture ? gestureBodyPose(gesture, t) : null;
     const swing = Math.sin(t * 9) * 0.6 * blend.current;
     if (root.current) {
       root.current.position.y = Math.sin(t * 2) * 0.012 + Math.abs(Math.sin(t * 9)) * 0.04 * blend.current;
-      root.current.rotation.z = gesture === 'dance' ? Math.sin(t * 7) * 0.12 : 0;
-      root.current.rotation.y = preview ? Math.sin(t * 0.4) * 0.12 : gesture === 'dance' ? Math.sin(t * 4) * 0.25 : 0;
+      root.current.rotation.z = body?.rootZ ?? 0;
+      root.current.rotation.y = preview ? Math.sin(t * 0.4) * 0.12 : body?.rootY ?? 0;
     }
-    if (head.current) head.current.rotation.z = gesture === 'wave' ? -0.08 : Math.sin(t * 1.1) * 0.025;
+    if (head.current) head.current.rotation.z = body?.headZ ?? Math.sin(t * 1.1) * 0.025;
     arms.current.forEach((arm, i) => {
       if (!arm) return;
       arm.rotation.x = swing * (i === 0 ? -0.65 : 0.65);
       arm.rotation.z = (i === 0 ? 1 : -1) * 0.08;
-      if (gesture === 'wave' && i === 1) { arm.rotation.z = -2.4 + Math.sin(t * 12) * 0.25; arm.rotation.x = -0.3; }
-      if (gesture === 'dance') arm.rotation.z = (i === 0 ? 1 : -1) * (0.9 + Math.sin(t * 7) * 0.3);
     });
     legs.current.forEach((leg, i) => { if (leg) leg.rotation.x = swing * (i === 0 ? 1 : -1); });
     applyAvatarActivity(root.current,arms.current,legs.current,motion?.current,t,false);
+    if (gesture) {
+      arms.current.forEach((arm, i) => {
+        if (!arm) return;
+        const pose = gestureArmPose(gesture, t, i === 0 ? 0 : 1);
+        arm.rotation.x = pose.x;
+        arm.rotation.z = pose.z;
+      });
+    }
   });
   const coat = a.outfit === 'jacket' || a.outfit === 'formal';
   return <group ref={root} name="avatar">

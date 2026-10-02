@@ -11,6 +11,25 @@ export type AvatarMotion = { seated?:boolean; activity?:"typing"|"coffee"|"talki
 export function activeGesture(gesture: Gesture | null, elapsed: number): Gesture | null {
   return elapsed >= 0 && elapsed < 3 ? gesture : null;
 }
+
+export type GestureArm = { x: number; z: number };
+export type GestureBody = { rootY: number; rootZ: number; headZ: number };
+
+/** Arm 0 hangs on -X. Arm 1 is the one that waves. Both dance out, away from the face. */
+export function gestureArmPose(gesture: Gesture, time: number, side: 0 | 1): GestureArm {
+  if (gesture === 'wave') {
+    if (side === 0) return { x: 0, z: 0.08 };
+    return { x: 0.15, z: 2.15 + Math.sin(time * 12) * 0.18 };
+  }
+  const beat = Math.sin(time * 7);
+  return { x: 0.15, z: (side === 0 ? -1 : 1) * (2.02 + beat * 0.1) };
+}
+
+export function gestureBodyPose(gesture: Gesture, time: number): GestureBody {
+  if (gesture === 'wave') return { rootY: 0, rootZ: 0, headZ: -0.06 };
+  const beat = Math.sin(time * 7);
+  return { rootY: Math.sin(time * 4) * 0.18, rootZ: beat * 0.08, headZ: Math.sin(time * 1.1) * 0.02 };
+}
 export function blendMotion(current: number, moving: boolean, dt: number) {
   return current + ((moving ? 1 : 0) - current) * (1 - Math.exp(-10 * Math.max(0, dt)));
 }
