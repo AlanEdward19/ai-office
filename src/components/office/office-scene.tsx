@@ -16,6 +16,7 @@ import { commonAreas, ELEVATOR_DOOR_ROTATION, LOUNGE_POSITION } from "@/domain/o
 import { OFFICE_ENTRY, PROJECT_ROOM, OFFICE_BOUNDS, FURNISHED_AREAS } from "@/domain/office-map";
 import { sceneObstacles } from "@/domain/scene-collision";
 import { isClaudeCloudLabel, placedStatusText } from "@/domain/claude-cloud-status";
+import { agentPlaceLabel, localAgentOffline } from "@/domain/office-machines";
 import { ELEVATOR, type FloorId } from "@/domain/floors";
 import { PROVIDER_LABELS } from "@/domain/providers";
 import { localWingPlate, type PlacedAgent } from "@/domain/placement";
@@ -460,21 +461,21 @@ function DeskAgent({
   const statusText = placedStatusText(agent);
   const swatch = claudeSwatch(agent.claudeCloudLabel) ?? STATUS_COLOR[agent.event.status];
   const moving = agent.claudeCloudLabel ? agent.claudeCloudLabel === "running" : agent.event.status === "working";
+  const offline = localAgentOffline(agent.event.origin, agent.machineOnline, localOffline);
+  const place = agentPlaceLabel(agent);
   const lines = local
     ? [
         { text: "Local", kind: "kicker" as const },
         { text: agent.displayName ?? company, kind: "title" as const },
         {
-          text: localOffline
-            ? `${agent.event.owner} · máquina offline`
-            : `${agent.event.owner} · ${STATUS_LABELS[agent.event.status]}`,
+          text: offline ? `${place} · máquina offline` : `${place} · ${STATUS_LABELS[agent.event.status]}`,
           kind: "meta" as const,
         },
       ]
     : [
-        { text: company, kind: "kicker" as const },
-        { text: agent.displayName ?? role ?? "Nuvem", kind: "title" as const },
-        { text: statusText, kind: "status" as const },
+        { text: "Nuvem", kind: "kicker" as const },
+        { text: agent.displayName ?? role ?? company, kind: "title" as const },
+        { text: `${place} · ${statusText}`, kind: "status" as const },
       ];
   return (
     <group position={[agent.x, 0, agent.z]}><group ref={built}>

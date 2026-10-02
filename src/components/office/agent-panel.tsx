@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { STATUS_LABELS } from "@/domain/agent-event";
+import { agentPlaceLabel, localAgentOffline } from "@/domain/office-machines";
 import { dispatchSessionLink, dispatchHistoryIdentity, type DispatchRecord } from "@/domain/dispatch";
 import type { PlacedAgent } from "@/domain/placement";
 import type { PlacedRoom } from "@/domain/rooms";
@@ -15,8 +16,8 @@ import { agentProfileStore } from "./agent-profile-store";
 type Snapshot = { status: string; messages: { role: string; text: string }[]; activity: string[]; error?: string | null };
 const empty: Snapshot = { status: "idle", messages: [], activity: [] };
 
-export function AgentPanel({ agent, name, host, offline, dispatches, rooms, onClose, onBoard, onAssign, onHire, initialTab="activity", onApproach, onMeeting, colleagues=[] }: {
-  agent: PlacedAgent; name?: string; host: boolean; offline: boolean; dispatches: DispatchRecord[]; rooms: PlacedRoom[];
+export function AgentPanel({ agent, name, host, canAct=host, offline, dispatches, rooms, onClose, onBoard, onAssign, onHire, initialTab="activity", onApproach, onMeeting, colleagues=[] }: {
+  agent: PlacedAgent; name?: string; host: boolean; canAct?: boolean; offline: boolean; dispatches: DispatchRecord[]; rooms: PlacedRoom[];
   initialTab?:"activity"|"messages"|"history";onApproach?:()=>void;onMeeting?:(id:string)=>void;colleagues?:PlacedAgent[];
   onClose: () => void; onBoard: (id: string) => void; onAssign?: () => Promise<void>; onHire: () => void;
 }) {
@@ -68,7 +69,7 @@ export function AgentPanel({ agent, name, host, offline, dispatches, rooms, onCl
     <DialogContent className="w-[min(100%-1.5rem,52rem)] max-h-[90dvh] overflow-y-auto bg-white">
       <DialogHeader>
         <DialogTitle>{name ?? agent.form?.role ?? PROVIDER_LABELS[provider]}</DialogTitle>
-        <DialogDescription>{PROVIDER_LABELS[provider]} · {agent.event.owner} · {offline && agent.event.origin === "local" ? "Máquina offline" : STATUS_LABELS[agent.event.status]}</DialogDescription>
+        <DialogDescription>{agentPlaceLabel(agent)} · {localAgentOffline(agent.event.origin, agent.machineOnline, offline) ? "Máquina offline" : STATUS_LABELS[agent.event.status]}</DialogDescription>
       </DialogHeader>
       {host && <form className="mb-5 flex gap-2" onSubmit={e => { e.preventDefault(); try { agentProfileStore.rename(agent.id, draftName); setError(null); } catch (e) { setError(e instanceof Error ? e.message : "Nome inválido."); } }}><Input aria-label="Nome do agente" maxLength={60} value={draftName} onChange={e => setDraftName(e.target.value)} /><Button type="submit" variant="outline">Renomear</Button></form>}
       <div className="mb-5 flex flex-wrap gap-2 border-b border-slate-200 pb-3" role="tablist" aria-label="Detalhes do agente">{(["activity", "messages", "history", "cards"] as const).map(key => <button key={key} role="tab" aria-selected={tab === key} onClick={() => {if(key==="messages"&&initialTab!=="messages"&&host&&onApproach)onApproach();else setTab(key);}} className={`rounded-xl px-4 py-2 text-sm transition ${tab === key ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>{key === "activity" ? "Atividade" : key === "messages" ? "Conversa" : key === "history" ? "Histórico" : `Cards (${dispatches.length})`}</button>)}</div>
@@ -92,10 +93,10 @@ export function AgentPanel({ agent, name, host, offline, dispatches, rooms, onCl
       {tab === "cards" && <div className="space-y-3">
         {dispatches.map((d,i) => <div key={`${d.issueId}-${i}`} className="rounded-xl border border-slate-200 p-4"><p className="text-sm font-semibold">{rooms.find(r => r.id === d.projectId)?.name ?? "Projeto"}</p><p className="mt-1 text-xs text-slate-500">Atribuído em {new Date(d.createdAt).toLocaleString("pt-BR")}</p>{dispatchSessionLink(d) && <a className="mt-2 block text-sm underline" href={dispatchSessionLink(d)!.href} target="_blank" rel="noreferrer">Abrir {dispatchSessionLink(d)!.label}</a>}<button className="mt-2 text-sm underline" onClick={() => onBoard(d.projectId)}>Ver card no quadro</button></div>)}
         {!dispatches.length && <p className="py-4 text-sm text-slate-500">Nenhum card atribuído a esta mesa.</p>}
-        {host && onAssign && <Button onClick={() => void onAssign()}>Atribuir card carregado</Button>}
+        {canAct && onAssign && <Button onClick={() => void onAssign()}>Atribuir card carregado</Button>}
         <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Puxar do quadro</p>{rooms.map(r => <Button key={r.id} variant="outline" className="mr-2 mb-2" onClick={() => onBoard(r.id)}>{r.name}</Button>)}
         {!rooms.length && <p className="text-sm text-slate-500">Abra uma sala vinculada ao Linear para puxar cards.</p>}
-        {host && <Button variant="outline" className="w-full" onClick={onHire}>Contratar outro agente</Button>}
+        {canAct && <Button variant="outline" className="w-full" onClick={onHire}>Contratar outro agente</Button>}
       </div>}
       {(error || snapshot.error) && <p role="alert" className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error ?? snapshot.error}</p>}
     </DialogContent>

@@ -13,6 +13,8 @@ export type PlacedAgent = {
   event: AgentEvent;
   /** Managed Agents status, unknown, or a failure. Null on every other desk. */
   claudeCloudLabel?: string | null;
+  /** Set when a local machine reported itself. False means that machine stopped sending. */
+  machineOnline?: boolean;
 };
 
 

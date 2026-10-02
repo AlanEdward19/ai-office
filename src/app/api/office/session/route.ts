@@ -17,8 +17,9 @@ export async function POST(request: Request) {
     body = {};
   }
   const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+  const requested = record.intent === "colleague" ? "observer" : record.intent;
   const intent: OfficeRole | null =
-    record.intent === "host" || record.intent === "colleague" ? record.intent : null;
+    requested === "host" || requested === "interact" || requested === "observer" ? requested : null;
   if (!intent) return Response.json({ error: "name_required" }, { status: 400 });
   const name = typeof record.name === "string" ? record.name : "";
   const result = await signInOffice({

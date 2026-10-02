@@ -3,10 +3,19 @@ import { readTimeZone } from "./office-time";
 import { isAgentEvent, type AgentEvent } from "./agent-event";
 import { isClaudeCloudLabel } from "./claude-cloud-status";
 import { presentLocalEvent } from "./local-hooks";
-import type { PlacedAgent } from "./placement";
+import {
+  LOCAL_REPORT_STALE_MS,
+  mergeFloor,
+  nextCloudSlot,
+  readLocalMachineReport,
+  type StoredLocalReport,
+} from "./office-machines";
+import type { JobForm } from "./job-form";
+import { hireEvent, type PlacedAgent } from "./placement";
+import { PROJECT_CAPACITY } from "./office-map";
 import { isProviderId } from "./providers";
 
-export type OfficeRole = "host" | "colleague";
+export type OfficeRole = "host" | "interact" | "observer";
 
 export type OfficeAction =
   | "publish"
@@ -37,8 +46,9 @@ const ROOM_CAP = 24;
 const AGENT_CAP = 48;
 
 export function canPerform(role: OfficeRole, action: OfficeAction): boolean {
-  void action;
-  return role === "host";
+  if (role === "host") return true;
+  if (role === "interact") return action !== "publish";
+  return false;
 }
 
 export function decideSignIn(input: {
@@ -65,7 +75,7 @@ export function decideSignIn(input: {
   ) {
     return { ok: false, reason: "same_person" };
   }
-  return { ok: true, role: "colleague", name };
+  return { ok: true, role: input.intent, name };
 }
 
 function finiteCoord(value: unknown): number | null {
@@ -112,7 +122,8 @@ export function readSharedScene(value: unknown): SharedScene | null {
     const form = readForm(agent.form);
     if (form === undefined) continue;
     const claudeCloudLabel = readClaudeLabel(agent.claudeCloudLabel);
-    agents.push({ id, x, z, form, event, claudeCloudLabel, ...(clip(agent.displayName,60)?{displayName:clip(agent.displayName,60)}:{}) });
+    const machineOnline = typeof agent.machineOnline === "boolean" ? agent.machineOnline : undefined;
+    agents.push({ id, x, z, form, event, claudeCloudLabel, ...(clip(agent.displayName,60)?{displayName:clip(agent.displayName,60)}:{}), ...(machineOnline === undefined ? {} : { machineOnline }) });
   }
 
   return { hostName, ...(readTimeZone(record.hostTimeZone) ? { hostTimeZone: readTimeZone(record.hostTimeZone) } : {}), localOffline: record.localOffline, rooms, agents, ...(Array.isArray(record.routines) ? {routines:record.routines.slice(0,49).flatMap((r:unknown)=>{const visual=readRoutineVisual(r);return visual?[visual]:[];})} : {}) };
@@ -147,19 +158,32 @@ function readEvent(value: unknown): AgentEvent | null {
   return isAgentEvent(candidate) ? candidate : null;
 }
 
-/** The host page closed. Colleagues keep the rooms, without a working local agent. */
-export function sceneWithoutHost(scene: SharedScene): SharedScene {
+/** The host page closed. That machine's local agents stop working. Other machines stay as reported. */
+export function sceneWithoutHost(scene: SharedScene, hostMachineId?: string | null): SharedScene {
   return {
     hostName: scene.hostName,
     ...(scene.hostTimeZone ? { hostTimeZone: scene.hostTimeZone } : {}),
     localOffline: true,
     ...(scene.routines?{routines:scene.routines.map(r=>({...r,state:r.state==='working'?'sleeping' as const:r.state}))}:{}),
     rooms: scene.rooms.map((room) => ({ ...room })),
-    agents: scene.agents.map((agent) => ({
-      ...agent,
-      form: agent.form ? { ...agent.form } : null,
-      event: presentLocalEvent(agent.event, false),
-    })),
+    agents: scene.agents.map((agent) => {
+      const hostLocal =
+        agent.event.origin === "local" &&
+        (!hostMachineId || agent.event.machineId === hostMachineId);
+      if (!hostLocal) {
+        return {
+          ...agent,
+          form: agent.form ? { ...agent.form } : null,
+          event: { ...agent.event },
+        };
+      }
+      return {
+        ...agent,
+        machineOnline: false,
+        form: agent.form ? { ...agent.form } : null,
+        event: presentLocalEvent(agent.event, false),
+      };
+    }),
   };
 }
 
@@ -173,6 +197,9 @@ type Member = {
 export function createOfficeHub(options: { graceMs: number; onEmpty?: () => void }) {
   let snapshot: SharedScene | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  let hostMachineId: string | null = null;
+  const reports = new Map<string, StoredLocalReport>();
   const members = new Set<Member>();
 
   const hostCount = () => {
@@ -185,10 +212,51 @@ export function createOfficeHub(options: { graceMs: number; onEmpty?: () => void
     for (const member of members) member.listener(snapshot);
   };
 
+  const clearRefresh = () => {
+    if (!refreshTimer) return;
+    clearTimeout(refreshTimer);
+    refreshTimer = null;
+  };
+
   const wipe = () => {
     snapshot = null;
+    hostMachineId = null;
+    reports.clear();
+    clearRefresh();
     fanout();
     options.onEmpty?.();
+  };
+
+  const applyFloor = (
+    incoming: SharedScene | null,
+    hostLocalsFrom: "incoming" | "keep",
+    rooms?: SharedScene["rooms"],
+  ) => {
+    const next = mergeFloor({
+      previous: snapshot,
+      incoming,
+      reports: [...reports.values()],
+      now: Date.now(),
+      hostMachineId,
+      hostPresent: hostCount() > 0,
+      hostLocalsFrom,
+      ...(rooms ? { rooms } : {}),
+    });
+    snapshot = next as SharedScene | null;
+  };
+
+  const scheduleRefresh = () => {
+    clearRefresh();
+    if (reports.size === 0 || members.size === 0) return;
+    const timerId = setTimeout(() => {
+      refreshTimer = null;
+      if (members.size === 0) return;
+      applyFloor(null, "keep");
+      fanout();
+      scheduleRefresh();
+    }, LOCAL_REPORT_STALE_MS);
+    refreshTimer = timerId;
+    if (typeof timerId === "object" && timerId && "unref" in timerId) timerId.unref();
   };
 
   return {
@@ -210,7 +278,7 @@ export function createOfficeHub(options: { graceMs: number; onEmpty?: () => void
       return () => {
         if (!members.delete(member)) return;
         if (hostCount() === 0 && snapshot && members.size > 0) {
-          snapshot = sceneWithoutHost(snapshot);
+          snapshot = sceneWithoutHost(snapshot, hostMachineId);
           fanout();
         }
         if (members.size > 0) return;
@@ -227,9 +295,75 @@ export function createOfficeHub(options: { graceMs: number; onEmpty?: () => void
       if (members.size <= 0) return { ok: false as const, reason: "closed" as const };
       const clean = readSharedScene(scene);
       if (!clean) return { ok: false as const, reason: "invalid" as const };
-      snapshot = clean;
+      const detected = singleLocalMachine(clean.agents);
+      if (detected) hostMachineId = detected;
+      applyFloor(clean, "incoming");
       fanout();
       return { ok: true as const };
     },
+    reportLocal(report: unknown) {
+      if (members.size <= 0) return { ok: false as const, reason: "closed" as const };
+      const clean = readLocalMachineReport(report);
+      if (!clean) return { ok: false as const, reason: "invalid" as const };
+      if (hostMachineId && clean.machineId === hostMachineId) {
+        return { ok: true as const };
+      }
+      reports.set(clean.machineId, { report: clean, seenAt: Date.now() });
+      applyFloor(null, "keep");
+      fanout();
+      scheduleRefresh();
+      return { ok: true as const };
+    },
+    hire(role: OfficeRole, input: { id: string; form: JobForm; owner: string; observedAt: string }) {
+      if (!canPerform(role, "hire")) return { ok: false as const, reason: "read_only" as const };
+      if (members.size <= 0) return { ok: false as const, reason: "closed" as const };
+      const slot = nextCloudSlot(snapshot?.agents ?? []);
+      if (!slot) return { ok: false as const, reason: "capacity" as const };
+      if ((snapshot?.agents ?? []).some((agent) => agent.id === input.id)) {
+        return { ok: false as const, reason: "exists" as const };
+      }
+      const agent: PlacedAgent = {
+        id: input.id,
+        x: slot.x,
+        z: slot.z,
+        form: input.form,
+        event: hireEvent(
+          { id: input.id, form: input.form, createdAt: input.observedAt },
+          input.owner,
+          input.observedAt,
+        ),
+      };
+      applyFloor(partialScene(snapshot, input.owner, [agent]), "keep");
+      fanout();
+      return { ok: true as const };
+    },
+    openRoom(role: OfficeRole, rooms: SharedRoom[]) {
+      if (!canPerform(role, "open_room")) return { ok: false as const, reason: "read_only" as const };
+      if (members.size <= 0) return { ok: false as const, reason: "closed" as const };
+      if (rooms.length > PROJECT_CAPACITY) return { ok: false as const, reason: "capacity" as const };
+      applyFloor(partialScene(snapshot, snapshot?.hostName ?? "Escritório", []), "keep", rooms);
+      fanout();
+      return { ok: true as const };
+    },
+  };
+}
+
+function singleLocalMachine(agents: readonly PlacedAgent[]): string | null {
+  const ids = new Set(
+    agents.flatMap((agent) =>
+      agent.event.origin === "local" && agent.event.machineId ? [agent.event.machineId] : [],
+    ),
+  );
+  if (ids.size !== 1) return null;
+  return [...ids][0] ?? null;
+}
+
+function partialScene(current: SharedScene | null, owner: string, agents: PlacedAgent[]): SharedScene {
+  return {
+    hostName: (current?.hostName ?? owner.slice(0, 40)) || "Escritório",
+    ...(current?.hostTimeZone ? { hostTimeZone: current.hostTimeZone } : {}),
+    localOffline: current?.localOffline ?? false,
+    rooms: [],
+    agents,
   };
 }

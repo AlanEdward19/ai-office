@@ -141,11 +141,15 @@ test('living office C22 explicit cancellation and disappearing recipient prevent
 test('living office C13 native atomic history filesystem preserves failed writes and corruption',async()=>{
  // server-only package is loaded under its legitimate react-server condition in an isolated process.
  const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');
+ const {mkdtemp,writeFile,rm}=await import('node:fs/promises');const {tmpdir}=await import('node:os');const {join}=await import('node:path');const {pathToFileURL}=await import('node:url');
+ const dir=await mkdtemp(join(tmpdir(),'office-c13-runner-')),runner=join(dir,'run.mts');
+ const history=pathToFileURL(join(process.cwd(),'src/server/history-file.ts')).href;
+ const repository=pathToFileURL(join(process.cwd(),'src/domain/agent-history.ts')).href;
  const script=`
  import assert from 'node:assert/strict';
  import {mkdtemp,stat,readdir,chmod,readFile,writeFile,rm} from 'node:fs/promises';
  import {tmpdir} from 'node:os';import {join} from 'node:path';
- import {historyFileIO} from './src/server/history-file.ts';import {historyRepository} from './src/domain/agent-history.ts';
+ import {historyFileIO} from ${JSON.stringify(history)};import {historyRepository} from ${JSON.stringify(repository)};
  const root=await mkdtemp(join(tmpdir(),'office-native-history-')),directory=join(root,'private'),file=join(directory,'history.json'),io=historyFileIO(directory);
  try{
   assert.equal(await io.read(),null);await io.writeAtomic('old');assert.equal((await stat(directory)).mode&511,448);assert.equal((await stat(file)).mode&511,384);
@@ -154,7 +158,10 @@ test('living office C13 native atomic history filesystem preserves failed writes
   await writeFile(file,'corrupt');const repository=historyRepository(io);await assert.rejects(repository.read());await assert.rejects(repository.append([]));assert.equal(await readFile(file,'utf8'),'corrupt');assert.deepEqual(await readdir(directory),['history.json']);
  }finally{await chmod(directory,448).catch(()=>{});await rm(root,{recursive:true,force:true});}
  `;
- await promisify(execFile)(process.execPath,['--conditions=react-server','--import','tsx','--input-type=module','-e',script],{cwd:process.cwd(),timeout:15000});
+ try{
+  await writeFile(runner,script);
+  await promisify(execFile)(process.execPath,['--conditions=react-server','--import','tsx',runner],{cwd:process.cwd(),timeout:15000});
+ }finally{await rm(dir,{recursive:true,force:true});}
 });
 
 test('living office C3 render target preserves physical DPR pixels and CSS blur radius',async()=>{
