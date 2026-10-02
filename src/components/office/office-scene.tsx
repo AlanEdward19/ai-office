@@ -8,7 +8,7 @@ import type { CameraMode } from "@/domain/camera";
 
 import { RoundedBox } from "@react-three/drei/core/RoundedBox";
 import { useFrame } from "@react-three/fiber";
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { BackSide, Mesh, type Group } from "three";
 
 import { STATUS_LABELS, type AgentStatus } from "@/domain/agent-event";
@@ -32,6 +32,14 @@ import type {RoutineEngine,RoutineVisual,RoutineCommand,RoutineResult} from "@/d
 import { Avatar } from "./avatar";
 import { DEFAULT_APPEARANCE } from "@/domain/character";
 import { OfficePlayer } from "./player";
+
+function readCollision(environment: Group | null) {
+  const walls: Mesh[] = [];
+  environment?.traverse(object => {
+    if (object.userData.cameraWall) walls.push(object as Mesh);
+  });
+  return { obstacles: environment ? sceneObstacles(environment) : null, walls };
+}
 
 const STATUS_COLOR: Record<AgentStatus, string> = {
   idle: "#8d8276",
@@ -96,13 +104,21 @@ export function OfficeScene({
   const environment = useRef<Group>(null);
   const obstacles = useRef<Obstacle[]>([]);
   const cameraWalls = useRef<Mesh[]>([]);
+  const collisionKey = useRef("");
+  const sceneKey = `${floor}:${cameraMode}:${rooms.map(room => `${room.id}@${room.x},${room.z}`).join("|")}:${agents.length}`;
+  const refreshCollision = useCallback(() => {
+    if (collisionKey.current === sceneKey && cameraWalls.current.length > 0) return;
+    const read = readCollision(environment.current);
+    if (!read.walls.length) return;
+    if (read.obstacles) obstacles.current = read.obstacles;
+    cameraWalls.current = read.walls;
+    collisionKey.current = sceneKey;
+  }, [sceneKey]);
   useLayoutEffect(() => {
-    obstacles.current = environment.current ? sceneObstacles(environment.current) : [];
-    cameraWalls.current.length = 0;
-    environment.current?.traverse(object => {
-      if (object instanceof Mesh && object.userData.cameraWall) cameraWalls.current.push(object);
-    });
-  }, [floor, rooms, agents, cameraMode]);
+    refreshCollision();
+  }, [refreshCollision]);
+  // The layout pass can run before the meshes exist. Try again before the camera moves.
+  useFrame(refreshCollision, -1);
 
   return (
     <>
