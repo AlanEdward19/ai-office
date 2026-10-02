@@ -1,7 +1,7 @@
 "use client";
 import { Mic, MicOff, Video, VideoOff, ChevronDown, ChevronUp, Lock, LockOpen, Users } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { callInitiator, parseCallSignal, type CallDownlink, type CallAction, type CallPeer, type CallSignal } from '@/domain/call';
+import { callInitiator, createPeerId, parseCallSignal, type CallDownlink, type CallAction, type CallPeer, type CallSignal } from '@/domain/call';
 import { areaAt } from '@/domain/meeting-areas';
 import type { FloorId } from '@/domain/floors';
 import type { Pose } from '@/domain/walker';
@@ -85,7 +85,7 @@ export function OfficeCall(props:Props) {
   if(result?.error==='locked') {const own=snapshot.current?.peers.find(p=>p.id===self.current);if(own)latest.current.onCorrection(own);}
  };
  useEffect(()=>{
-  closed.current=false;self.current=crypto.randomUUID();
+  closed.current=false;self.current=createPeerId();
   const es=new EventSource(`/api/call?peer=${encodeURIComponent(self.current)}`);source.current=es;
   es.addEventListener('roster',e=>{try{const r=JSON.parse((e as MessageEvent).data) as PresenceRoster;if(r.type==='roster'&&r.self===self.current&&Array.isArray(r.peers)){const first=!snapshot.current;receiveRoster(r);if(first)void publishPresence();}}catch{}});
   es.addEventListener('signal',e=>{try{void receiveSignal(JSON.parse((e as MessageEvent).data));}catch{}});

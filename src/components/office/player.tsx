@@ -1,7 +1,7 @@
 "use client";
 
 import {sitAt,seatedPose,type Sitting,type Seat} from "@/domain/seating";
-import { cameraView, type CameraMode } from "@/domain/camera";
+import { cameraView, firstPersonLook, type CameraMode } from "@/domain/camera";
 
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useRef, type RefObject } from "react";
@@ -80,6 +80,7 @@ export function OfficePlayer({
   const target = useRef<{ x: number; z: number } | null>(null);
   const keys = useRef(new Set<string>());
   const look = useRef({ yaw: 0, pitch: 0 });
+  const cameraModeRef = useRef(cameraMode);
   const targetsRef = useRef(targets);
   const enabledRef = useRef(enabled);
   const floorRef = useRef(floor);
@@ -98,6 +99,11 @@ export function OfficePlayer({
   useEffect(() => {
     enabledRef.current = enabled;
   }, [enabled]);
+
+  useEffect(() => {
+    cameraModeRef.current = cameraMode;
+    if (cameraMode !== "first" && typeof document !== "undefined" && document.pointerLockElement === gl.domElement) document.exitPointerLock();
+  }, [cameraMode, gl]);
 
   useEffect(() => {
     if (floorRef.current === floor) return;
@@ -134,7 +140,20 @@ export function OfficePlayer({
     let lastX = 0;
     let lastY = 0;
     let moved = 0;
+    let freeX = 0;
+    let freeY = 0;
+    let free = false;
 
+    const addLook = (dx: number, dy: number, first: boolean) => {
+      if (first) {
+        const delta = firstPersonLook(dx, dy);
+        look.current.yaw += delta.yaw;
+        look.current.pitch += delta.pitch;
+        return;
+      }
+      look.current.yaw += dx * 0.0045;
+      look.current.pitch += dy * 0.003;
+    };
     const onDown = (event: PointerEvent) => {
       if (event.button !== 0 || !enabledRef.current) return;
       pointerId = event.pointerId;
@@ -143,20 +162,41 @@ export function OfficePlayer({
       moved = 0;
     };
     const onMove = (event: PointerEvent) => {
-      if (event.pointerId !== pointerId) return;
-      const dx = event.clientX - lastX;
-      const dy = event.clientY - lastY;
-      lastX = event.clientX;
-      lastY = event.clientY;
-      moved += Math.abs(dx) + Math.abs(dy);
-      if (moved < 5) return;
-      look.current.yaw += dx * 0.0045;
-      look.current.pitch += dy * 0.003;
+      const first = cameraModeRef.current === "first";
+      const locked = document.pointerLockElement === element;
+      if (first && locked) {
+        addLook(event.movementX, event.movementY, true);
+        return;
+      }
+      if (event.pointerId === pointerId) {
+        const dx = event.clientX - lastX;
+        const dy = event.clientY - lastY;
+        lastX = event.clientX;
+        lastY = event.clientY;
+        moved += Math.abs(dx) + Math.abs(dy);
+        if (moved < 5) return;
+        addLook(dx, dy, first);
+        return;
+      }
+      if (!first || event.pointerType !== "mouse" || event.target !== element) {
+        free = false;
+        return;
+      }
+      if (free) addLook(event.clientX - freeX, event.clientY - freeY, true);
+      freeX = event.clientX;
+      freeY = event.clientY;
+      free = true;
     };
     const onUp = (event: PointerEvent) => {
       if (event.pointerId !== pointerId) return;
+      const dragged = moved > 8;
+      const locked = document.pointerLockElement === element;
       pointerId = null;
-      if (!enabledRef.current || moved > 8) return;
+      if (cameraModeRef.current === "first" && dragged && !locked) {
+        const pending = element.requestPointerLock?.();
+        if (pending && typeof pending.catch === "function") void pending.catch(() => undefined);
+      }
+      if (!enabledRef.current || dragged || locked) return;
       const rect = element.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) return;
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -179,13 +219,19 @@ export function OfficePlayer({
       };
     };
 
+    const onLeave = () => {
+      free = false;
+    };
     element.addEventListener("pointerdown", onDown);
     element.addEventListener("pointermove", onMove);
+    element.addEventListener("pointerleave", onLeave);
     window.addEventListener("pointerup", onUp);
     return () => {
       element.removeEventListener("pointerdown", onDown);
       element.removeEventListener("pointermove", onMove);
+      element.removeEventListener("pointerleave", onLeave);
       window.removeEventListener("pointerup", onUp);
+      if (typeof document !== "undefined" && document.pointerLockElement === element) document.exitPointerLock();
     };
   }, [camera, gl, scene]);
 
@@ -229,13 +275,12 @@ export function OfficePlayer({
     cameraPosition.current.set(view.position[0], view.position[1]-(sitting.current ? .36 : 0), view.position[2]);
     const focus = new Vector3(view.focus[0], view.focus[1], view.focus[2]);
     if (cameraMode === "first") {
-      // Eye position must follow the body exactly so movement and looking stay aligned.
       camera.position.copy(cameraPosition.current);
       cameraFocus.current.copy(focus);
     } else {
       cameraFocus.current.lerp(focus, 1 - Math.exp(-8 * dt));
+      camera.position.lerp(cameraPosition.current, 1 - Math.exp(-7 * Math.min(dt, 0.1)));
     }
-    camera.position.lerp(cameraPosition.current, 1 - Math.exp(-7 * Math.min(dt, 0.1)));
     if (cameraMode === "third") {
       cameraOrigin.current.set(walk.pose.x, 1.45, walk.pose.z);
       cameraDirection.current.copy(camera.position).sub(cameraOrigin.current);

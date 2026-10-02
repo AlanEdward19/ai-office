@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { isAgentEvent } from "./agent-event";
-import { callInitiator, createCallHub, parseCallSignal, type CallDownlink } from "./call";
+import { callInitiator, createCallHub, createPeerId, isPeerId, parseCallSignal, type CallDownlink } from "./call";
 
 const offer = { type: "offer", sdp: "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\n" };
 const answer = { type: "answer", sdp: "v=0\r\n" };
@@ -26,6 +26,22 @@ test("a call signal is offer, answer, ice, or media, and never an agent", () => 
   assert.equal(parseCallSignal({ type: "media", audio: false }), null);
   assert.equal(callInitiator("peer-aaaa", "peer-bbbb"), true);
   assert.equal(callInitiator("peer-bbbb", "peer-aaaa"), false);
+});
+
+test("a plain http page still gets a call id when randomUUID is missing", () => {
+  const secure = createPeerId({ randomUUID: () => "123e4567-e89b-12d3-a456-426614174000" });
+  assert.equal(isPeerId(secure), true);
+  const bytes = new Uint8Array(16);
+  const insecure = createPeerId({
+    getRandomValues(target) {
+      target.set(bytes.fill(0xab));
+      return target;
+    },
+  });
+  assert.equal(insecure, "abababababababababababababababab");
+  assert.equal(isPeerId(insecure), true);
+  assert.equal(isPeerId(createPeerId({})), true);
+  assert.equal(isPeerId(createPeerId({ randomUUID: () => "nope" })), true);
 });
 
 test("the signal reaches only a connected peer and dies with the last page", () => {
