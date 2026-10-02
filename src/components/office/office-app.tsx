@@ -858,7 +858,7 @@ export function OfficeApp() {
         </div>
       ) : session ? (
         <p className="office-hint pointer-events-none absolute bottom-36 left-1/2 w-[min(100%,36rem)] -translate-x-1/2 px-4 text-center text-xs leading-5 text-slate-600">
-          Clique para explorar · WASD para andar · E para interagir
+          {cameraMode === "first" ? "O mouse olha em volta · " : ""}WASD para andar · setas giram · clique no chão para ir · E para interagir
         </p>
       ) : null}
       {session ? <LocalDeskLink /> : null}

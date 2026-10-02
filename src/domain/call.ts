@@ -37,6 +37,30 @@ export function isPeerId(value: string): boolean {
   return PEER_ID.test(value);
 }
 
+type PeerIdSource = {
+  randomUUID?: () => string;
+  getRandomValues?: (bytes: Uint8Array) => Uint8Array;
+};
+
+/**
+ * A page id for the call. `randomUUID` exists only in a secure context, so a
+ * colleague on http://<lan-ip> must still get an id the hub accepts.
+ */
+export function createPeerId(source: PeerIdSource | undefined = globalThis.crypto): string {
+  if (source && typeof source.randomUUID === "function") {
+    try {
+      const id = source.randomUUID();
+      if (isPeerId(id)) return id;
+    } catch {
+      /* An insecure page can expose the method and still refuse to run it. */
+    }
+  }
+  const bytes = new Uint8Array(16);
+  if (source && typeof source.getRandomValues === "function") source.getRandomValues(bytes);
+  else for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256);
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 /** The lower id offers. The other side only answers, so the two pages do not glare. */
 export function callInitiator(localId: string, remoteId: string): boolean {
   return localId < remoteId;

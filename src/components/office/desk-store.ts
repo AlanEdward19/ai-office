@@ -7,6 +7,7 @@ import {
   type DeskRecord,
 } from "@/domain/desks";
 import { DESK_CAPACITY } from "@/domain/office-map";
+import { createPeerId } from "@/domain/call";
 import type { JobForm } from "@/domain/job-form";
 
 let snapshot = "";
@@ -50,7 +51,7 @@ export const deskStore = {
     readStorage();
     if (loadDesks(snapshot || null).length >= DESK_CAPACITY) throw new Error("Capacidade atingida: nove postos. Os corredores devem permanecer livres.");
     const desk: DeskRecord = {
-      id: crypto.randomUUID(),
+      id: createPeerId(),
       form,
       createdAt: new Date().toISOString(),
     };

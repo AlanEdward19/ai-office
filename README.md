@@ -12,7 +12,7 @@ npm run dev
 
 `npm run dev` listens on every interface at port 3847, so another computer on the same Wi-Fi can open it. On this machine, open [http://127.0.0.1:3847](http://127.0.0.1:3847). The entrance shows the address for the other computer, `http://<ip-desta-máquina>:3847`. There is still no deployed service. When the last page closes, the snapshot, the sessions, and the call signal are dropped.
 
-WASD walks. The arrow keys turn. Drag the mouse to look, or click the floor to walk there. Stand next to a desk, a room board, the elevator, or the HR desk and press E. The camera stays at eye level behind you. It is not an overhead diorama.
+WASD walks. The arrow keys turn. In first person the mouse looks around; drag once to capture it, and Esc releases it. In third person, drag to look. Click the floor to walk there. Stand next to a desk, a room board, the elevator, or the HR desk and press E. The camera stays at eye level behind you. It is not an overhead diorama.
 
 Put real keys in `.env.local` only. That file is gitignored. Do not commit keys.
 
