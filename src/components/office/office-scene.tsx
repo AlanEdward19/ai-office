@@ -21,8 +21,9 @@ import { ELEVATOR, type FloorId } from "@/domain/floors";
 import { PROVIDER_LABELS } from "@/domain/providers";
 import { localWingPlate, type PlacedAgent } from "@/domain/placement";
 import { CEO_CORNER, RECEPTION, roomColor, type PlacedRoom } from "@/domain/rooms";
+import { remoteIsWalking, remotePoseAt, remoteWalkDuration, remoteWalkProgress } from "@/domain/remote-walk";
 import { avatarRotation, interactTargets, type InteractTarget, type Pose } from "@/domain/walker";
-import type { Appearance, Gesture } from "@/domain/character";
+import type { Appearance, AvatarMotion, Gesture } from "@/domain/character";
 import type { Obstacle } from "@/domain/walker";
 import { AreaFocus } from "./area-focus";
 import {ProjectedLabel} from "./projected-label";
@@ -158,10 +159,7 @@ export function OfficeScene({
       )}
       <Elevator />
       </group>
-      {presence?.peers.filter(p => p.id !== presence.self && p.floor === floor).map(peer => <group key={peer.id} position={[peer.x,0,peer.z]} rotation={[0,avatarRotation(peer.yaw),0]} userData={{personId:peer.id,noCollision:true}} onClick={event=>{event.stopPropagation();onPerson(peer.id);}}>
-        <Avatar appearance={{...DEFAULT_APPEARANCE,shirt:"#6375b7",accessory:"glasses"}} motion={{current:{moving:false,seated:peer.seated,gesture:null,gestureStarted:0}}} />
-        <LocalTimeLabel timeZone={peer.timeZone} lines={[{text:peer.name,kind:"title"}]} />
-      </group>)}
+      {presence?.peers.filter(p => p.id !== presence.self && p.floor === floor).map(peer => <RemotePerson key={peer.id} peer={peer} onPerson={onPerson} />)}
       <AgentActors timeZone={agentTimeZone} agents={agents} floor={floor} host={host??false} engine={routineEngine} shared={routineVisuals??[]} commands={routineCommands??[]} idleMs={idleMs??300000} user={userPose??{x:0,z:2.6,yaw:0,pitch:0}} obstacles={obstacles} presence={presence} newHire={newHire??null} onSnapshot={onRoutines} onResult={onRoutineResult} onAgent={onAgent} />
       <AreaFocus area={presence?.areas.find(a=>a.id===presence.peers.find(p=>p.id===presence.self)?.areaId && a.floor===floor) ?? null} />
       <OfficePlayer
@@ -434,6 +432,52 @@ function ProjectRoom({ room, open, cameraMode }: { room: PlacedRoom; open: boole
         <meshStandardMaterial color={open ? "#f3d48a" : "#f7f1e8"} roughness={0.55} />
       </RoundedBox>
       <PlaceLabel title={room.name} y={2.35} />
+    </group>
+  );
+}
+
+function RemotePerson({ peer, onPerson }: { peer: PresenceRoster["peers"][number]; onPerson: (id: string) => void }) {
+  const group = useRef<Group>(null);
+  const motion = useRef<AvatarMotion>({ moving: false, seated: peer.seated, gesture: null, gestureStarted: 0 });
+  const from = useRef({ x: peer.x, z: peer.z, yaw: peer.yaw });
+  const to = useRef({ x: peer.x, z: peer.z, yaw: peer.yaw });
+  const started = useRef(0);
+  const duration = useRef(0.18);
+  const seen = useRef(false);
+  useLayoutEffect(() => {
+    if (!group.current) return;
+    group.current.position.set(peer.x, 0, peer.z);
+    group.current.rotation.y = avatarRotation(peer.yaw);
+    // Place once. Later samples are interpolated in the frame loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useFrame(({ clock }) => {
+    const now = clock.elapsedTime;
+    if (!seen.current) {
+      seen.current = true;
+      started.current = now;
+      from.current = { x: peer.x, z: peer.z, yaw: peer.yaw };
+      to.current = { ...from.current };
+    }
+    if (to.current.x !== peer.x || to.current.z !== peer.z || to.current.yaw !== peer.yaw) {
+      const progress = remoteWalkProgress(started.current, duration.current, now);
+      from.current = remotePoseAt({ from: from.current, to: to.current, progress });
+      to.current = { x: peer.x, z: peer.z, yaw: peer.yaw };
+      duration.current = remoteWalkDuration((now - started.current) * 1000) / 1000;
+      started.current = now;
+    }
+    const progress = remoteWalkProgress(started.current, duration.current, now);
+    const pose = remotePoseAt({ from: from.current, to: to.current, progress });
+    motion.current.moving = remoteIsWalking({ from: from.current, to: to.current, seated: peer.seated === true, progress });
+    motion.current.seated = peer.seated === true;
+    if (!group.current) return;
+    group.current.position.set(pose.x, 0, pose.z);
+    group.current.rotation.y = avatarRotation(pose.yaw);
+  });
+  return (
+    <group ref={group} userData={{ personId: peer.id, noCollision: true }} onClick={(event) => { event.stopPropagation(); onPerson(peer.id); }}>
+      <Avatar appearance={{ ...DEFAULT_APPEARANCE, shirt: "#6375b7", accessory: "glasses" }} motion={motion} />
+      <LocalTimeLabel timeZone={peer.timeZone} lines={[{ text: peer.name, kind: "title" }]} />
     </group>
   );
 }

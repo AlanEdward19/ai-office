@@ -66,6 +66,49 @@ export function callInitiator(localId: string, remoteId: string): boolean {
   return localId < remoteId;
 }
 
+export type CallChannel = "meeting" | "office";
+
+/** A person another machine already placed. Invalid poses are dropped. */
+export function readCallPeer(value: unknown): CallPeer | null {
+  if (!value || typeof value !== "object") return null;
+  const peer = value as Record<string, unknown>;
+  if (typeof peer.id !== "string" || !isPeerId(peer.id)) return null;
+  if (typeof peer.name !== "string" || !peer.name.trim()) return null;
+  if (peer.floor !== "ground" && peer.floor !== "hr") return null;
+  if (!["x", "z", "yaw", "pitch"].every((key) => typeof peer[key] === "number" && Number.isFinite(peer[key]))) {
+    return null;
+  }
+  const floor = peer.floor;
+  const bounds = walkBounds(floor);
+  const x = peer.x as number;
+  const z = peer.z as number;
+  const yaw = peer.yaw as number;
+  const pitch = peer.pitch as number;
+  if (x < bounds.minX || x > bounds.maxX || z < bounds.minZ || z > bounds.maxZ) return null;
+  if (Math.abs(yaw) > 1e6 || Math.abs(pitch) > 1) return null;
+  if (typeof peer.timeZone !== "string" || peer.timeZone.length > 80) return null;
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: peer.timeZone });
+  } catch {
+    return null;
+  }
+  if (peer.areaId !== null && typeof peer.areaId !== "string") return null;
+  if (peer.meetingId !== null && typeof peer.meetingId !== "string") return null;
+  return {
+    id: peer.id,
+    name: peer.name.trim().slice(0, 40),
+    x,
+    z,
+    yaw,
+    pitch,
+    floor,
+    timeZone: peer.timeZone,
+    seated: peer.seated === true,
+    areaId: typeof peer.areaId === "string" ? peer.areaId.slice(0, 80) : null,
+    meetingId: typeof peer.meetingId === "string" ? peer.meetingId.slice(0, 80) : null,
+  };
+}
+
 export function parseCallSignal(value: unknown): CallSignal | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
@@ -106,6 +149,8 @@ export function createCallHub(options: { areas?: MeetingArea[]; now?: () => numb
   const departed = new Map<string, { peer: CallPeer; token: string; expiresAt: number }>();
   const locks = new Map<string, string>();
   const invites = new Map<string, CallInvite>();
+  const remotes = new Map<string, CallPeer>();
+  const outbound: { from: string; to: string; signal: CallSignal }[] = [];
   let areas = options.areas ?? meetingAreas([]);
   const now = options.now ?? Date.now;
   let sequence = 0;
@@ -140,7 +185,9 @@ export function createCallHub(options: { areas?: MeetingArea[]; now?: () => numb
   };
   const sendRoster = () => {
     reconcile();
-    const peers=[...members.values()].map(publicPeer).sort((a,b)=>a.id.localeCompare(b.id));
+    const peers=[...members.values()].map(publicPeer);
+    for (const remote of remotes.values()) if (!members.has(remote.id)) peers.push(remote);
+    peers.sort((a,b)=>a.id.localeCompare(b.id));
     for (const m of members.values()) m.listener({type:'roster',self:m.id,peers,areas,locks:[...locks].map(([areaId,owner])=>({areaId,owner})),invites:[...invites.values()].filter(i=>i.from===m.id||i.to===m.id)});
   };
   return {
@@ -225,12 +272,52 @@ export function createCallHub(options: { areas?: MeetingArea[]; now?: () => numb
       }
       sendRoster();return {ok:true,peer:publicPeer(m)};
     },
-    post(input:{token:string;from:string;to:string;signal:unknown}):CallResult {
+    localPeers() {
+      return [...members.values()].map(publicPeer);
+    },
+    /** People reported by another machine on this LAN. They are not members of this process. */
+    setRemotePeers(peers: readonly CallPeer[]) {
+      remotes.clear();
+      for (const peer of peers) {
+        if (!isPeerId(peer.id) || members.has(peer.id)) continue;
+        remotes.set(peer.id, peer);
+      }
+      if (members.size > 0) sendRoster();
+    },
+    pullRemoteSignals() {
+      return outbound.splice(0, outbound.length);
+    },
+    requeueRemoteSignals(signals: readonly { from: string; to: string; signal: CallSignal }[]) {
+      outbound.unshift(...signals);
+      while (outbound.length > 32) outbound.pop();
+    },
+    deliverOfficeSignal(input: { to: string; from: string; signal: CallSignal }) {
+      const member = members.get(input.to);
+      if (!member || !isPeerId(input.from) || input.from === input.to) return false;
+      member.listener({ type: "signal", from: input.from, meetingId: "office", signal: input.signal });
+      return true;
+    },
+    post(input:{token:string;from:string;to:string;signal:unknown;channel?:CallChannel}):CallResult {
       reconcile();
-      const from=members.get(input.from),to=members.get(input.to);
-      if(!from||from.token!==input.token||!to||input.from===input.to)return {ok:false,reason:'closed'};
+      const from=members.get(input.from);
+      if(!from||from.token!==input.token||input.from===input.to)return {ok:false,reason:'closed'};
       const signal=parseCallSignal(input.signal);
       if(!signal)return {ok:false,reason:'invalid'};
+      const to=members.get(input.to);
+      if(input.channel==='office'){
+        if(from.meetingId?.startsWith('private:'))return {ok:false,reason:'forbidden'};
+        if(to){
+          if(to.meetingId?.startsWith('private:'))return {ok:false,reason:'forbidden'};
+          to.listener({type:'signal',from:from.id,meetingId:'office',signal});
+          return {ok:true};
+        }
+        const remote=remotes.get(input.to);
+        if(!remote||remote.meetingId?.startsWith('private:'))return {ok:false,reason:remote?'forbidden':'closed'};
+        outbound.push({from:from.id,to:remote.id,signal});
+        if(outbound.length>32)outbound.shift();
+        return {ok:true};
+      }
+      if(!to)return {ok:false,reason:'closed'};
       if(!from.meetingId||from.meetingId!==to.meetingId)return {ok:false,reason:'forbidden'};
       to.listener({type:'signal',from:from.id,meetingId:from.meetingId,signal});return {ok:true};
     },

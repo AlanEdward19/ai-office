@@ -4,3 +4,4 @@ Uma decisão por arquivo: `ADR-0001-...md`. Para reverter, novo ADR com status "
 
 - [ADR 0003 — Reuniões por área](ADR-0003-area-meetings.md)
 - [ADR 0005 — Escritório na rede local](ADR-0005-lan-office.md)
+- [ADR 0006 — Escritórios na mesma rede se encontram](ADR-0006-lan-discovery.md)

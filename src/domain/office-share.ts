@@ -199,6 +199,7 @@ export function createOfficeHub(options: { graceMs: number; onEmpty?: () => void
   let timer: ReturnType<typeof setTimeout> | null = null;
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
   let hostMachineId: string | null = null;
+  let hostReport: StoredLocalReport | null = null;
   const reports = new Map<string, StoredLocalReport>();
   const members = new Set<Member>();
 
@@ -221,6 +222,7 @@ export function createOfficeHub(options: { graceMs: number; onEmpty?: () => void
   const wipe = () => {
     snapshot = null;
     hostMachineId = null;
+    hostReport = null;
     reports.clear();
     clearRefresh();
     fanout();
@@ -240,6 +242,7 @@ export function createOfficeHub(options: { graceMs: number; onEmpty?: () => void
       hostMachineId,
       hostPresent: hostCount() > 0,
       hostLocalsFrom,
+      hostReport,
       ...(rooms ? { rooms } : {}),
     });
     snapshot = next as SharedScene | null;
@@ -247,7 +250,7 @@ export function createOfficeHub(options: { graceMs: number; onEmpty?: () => void
 
   const scheduleRefresh = () => {
     clearRefresh();
-    if (reports.size === 0 || members.size === 0) return;
+    if ((reports.size === 0 && !hostReport) || members.size === 0) return;
     const timerId = setTimeout(() => {
       refreshTimer = null;
       if (members.size === 0) return;
@@ -278,7 +281,12 @@ export function createOfficeHub(options: { graceMs: number; onEmpty?: () => void
       return () => {
         if (!members.delete(member)) return;
         if (hostCount() === 0 && snapshot && members.size > 0) {
-          snapshot = sceneWithoutHost(snapshot, hostMachineId);
+          const live =
+            hostReport &&
+            hostReport.report.online &&
+            Date.now() - hostReport.seenAt <= LOCAL_REPORT_STALE_MS;
+          if (live) applyFloor(null, "keep");
+          else snapshot = sceneWithoutHost(snapshot, hostMachineId);
           fanout();
         }
         if (members.size > 0) return;
@@ -296,8 +304,57 @@ export function createOfficeHub(options: { graceMs: number; onEmpty?: () => void
       const clean = readSharedScene(scene);
       if (!clean) return { ok: false as const, reason: "invalid" as const };
       const detected = singleLocalMachine(clean.agents);
-      if (detected) hostMachineId = detected;
+      if (detected && !hostReport) hostMachineId = detected;
       applyFloor(clean, "incoming");
+      fanout();
+      return { ok: true as const };
+    },
+    /** This machine's own observer. A later publish cannot erase a session it still reports. */
+    noteHostLocal(report: unknown) {
+      const clean = readLocalMachineReport(report);
+      if (!clean) return { ok: false as const, reason: "invalid" as const };
+      hostMachineId = clean.machineId;
+      hostReport = { report: clean, seenAt: Date.now() };
+      if (members.size > 0) {
+        applyFloor(null, "keep");
+        fanout();
+        scheduleRefresh();
+      } else {
+        applyFloor(null, "keep");
+      }
+      return { ok: true as const };
+    },
+    hostLocalReport() {
+      return hostReport;
+    },
+    /** Drops peer-built state once no page is joined and discovery has stopped. */
+    releaseIdle() {
+      if (members.size > 0) return;
+      hostReport = null;
+      hostMachineId = null;
+      reports.clear();
+      snapshot = null;
+      clearRefresh();
+    },
+    acceptPeerScene(input: { report: unknown; rooms: SharedRoom[]; cloud: PlacedAgent[] }) {
+      if (members.size <= 0) return { ok: false as const, reason: "closed" as const };
+      const clean = readLocalMachineReport(input.report);
+      if (!clean) return { ok: false as const, reason: "invalid" as const };
+      if (!(hostMachineId && clean.machineId === hostMachineId)) {
+        reports.set(clean.machineId, { report: clean, seenAt: Date.now() });
+        scheduleRefresh();
+      }
+      const hostName = (snapshot?.hostName ?? clean.owner.slice(0, 40)) || "Escritório";
+      applyFloor(
+        {
+          hostName,
+          ...(snapshot?.hostTimeZone ? { hostTimeZone: snapshot.hostTimeZone } : {}),
+          localOffline: snapshot?.localOffline ?? false,
+          rooms: input.rooms,
+          agents: input.cloud,
+        },
+        "keep",
+      );
       fanout();
       return { ok: true as const };
     },

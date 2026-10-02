@@ -1,7 +1,8 @@
-import { officeLanAddresses } from "@/server/office-channel";
+import { beatLanOffice } from "@/server/lan-bridge";
 
 export const dynamic = "force-dynamic";
 
+/** Heartbeat from an open page. Names only — this route does not hand out an address. */
 export function GET() {
-  return Response.json({ urls: officeLanAddresses(3847) });
+  return Response.json({ peers: beatLanOffice() });
 }

@@ -119,7 +119,7 @@ test('HTTP call boundary statuses',async()=>{
  assert.equal(accepted.status,200);assert.equal(accepted.headers.get('Content-Type'),'text/event-stream');assert.match(await accepted.text(),/event: roster/);assert.equal(opened,1);
  assert.equal(callStreamStatus(false,'person-a'),401);assert.equal(callStreamStatus(true,'bad'),400);assert.equal(callStreamStatus(true,'person-a'),200);
  const s=setup();
- const cmd=(i:Parameters<typeof s.hub.action>[0] & {to:string;signal:unknown;action:unknown})=>i.action===undefined?s.hub.post(i):s.hub.action(i);
+ const cmd=(i:Parameters<typeof s.hub.action>[0] & {to:string;signal:unknown;action:unknown;channel?:"meeting"|"office"})=>i.action===undefined?s.hub.post(i):s.hub.action(i);
  const send=(body:unknown,session:{token:string}|null={token:'person-a'})=>callCommandResponse(new Request('http://local/api/call',{method:'POST',body:JSON.stringify(body)}),session,cmd);
  assert.equal((await send({},null)).status,401);assert.equal((await send({})).status,400);
  assert.equal((await send({from:'person-a',action:{type:'presence',x:0,z:2.6,yaw:0,pitch:0,floor:'ground',timeZone:'UTC'}})).status,200);

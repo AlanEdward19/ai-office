@@ -1,5 +1,4 @@
 import {openClaudeCloudStream} from "@/server/claude-cloud-stream";
-import { openLocalStream } from "@/server/local-stream";
 import { openObserverStream } from "@/server/observe-stream";
 import { callCommandResponse, callStreamResponse } from "@/domain/call-http";
 import { type CallDownlink } from "@/domain/call";
@@ -77,7 +76,6 @@ function openCallStream(request: Request, peer: string, session: NonNullable<Ret
       leave = joined.leave;
       if (session.role === "host") {
         const observerRequest = new Request(request.url, { headers: request.headers, signal: observers.signal });
-        void forward(openLocalStream(observerRequest), "local-");
         void forward(openObserverStream(observerRequest), "cloud-");
         void forward(openClaudeCloudStream(observerRequest), "claude-");
       }
