@@ -1,7 +1,7 @@
 "use client";
 
 import {sitAt,seatedPose,type Sitting,type Seat} from "@/domain/seating";
-import { cameraView, firstPersonLook, type CameraMode } from "@/domain/camera";
+import { cameraView, followCamera, firstPersonLook, type CameraMode } from "@/domain/camera";
 
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useRef, type RefObject } from "react";
@@ -75,6 +75,8 @@ export function OfficePlayer({
   const gestureStamp = useRef(-1);
   const cameraPosition = useRef(new Vector3());
   const cameraFocus = useRef(new Vector3(0, 0.7, 0));
+  const desiredFocus = useRef(new Vector3());
+  const cameraPlaced = useRef(false);
   const pose = useRef<Pose>(LOBBY_SPAWN);
   const sitting=useRef<Sitting|null>(null);
   const target = useRef<{ x: number; z: number } | null>(null);
@@ -102,6 +104,7 @@ export function OfficePlayer({
 
   useEffect(() => {
     cameraModeRef.current = cameraMode;
+    cameraPlaced.current = false;
     if (cameraMode !== "first" && typeof document !== "undefined" && document.pointerLockElement === gl.domElement) document.exitPointerLock();
   }, [cameraMode, gl]);
 
@@ -111,6 +114,7 @@ export function OfficePlayer({
     floorRef.current = floor;
     pose.current = arrivalPose();
     target.current = null;
+    cameraPlaced.current = false;
   }, [floor]);
 
   useEffect(() => {
@@ -273,24 +277,35 @@ export function OfficePlayer({
     const yaw = visiblePose.yaw;
     const view = cameraView(cameraMode, visiblePose, zoom);
     cameraPosition.current.set(view.position[0], view.position[1]-(sitting.current ? .36 : 0), view.position[2]);
-    const focus = new Vector3(view.focus[0], view.focus[1], view.focus[2]);
-    if (cameraMode === "first") {
-      camera.position.copy(cameraPosition.current);
-      cameraFocus.current.copy(focus);
-    } else {
-      cameraFocus.current.lerp(focus, 1 - Math.exp(-8 * dt));
-      camera.position.lerp(cameraPosition.current, 1 - Math.exp(-7 * Math.min(dt, 0.1)));
-    }
+    desiredFocus.current.set(view.focus[0], view.focus[1], view.focus[2]);
+    cameraOrigin.current.set(visiblePose.x, 1.45, visiblePose.z);
+    let wallDistance: number | null = null;
     if (cameraMode === "third") {
-      cameraOrigin.current.set(walk.pose.x, 1.45, walk.pose.z);
-      cameraDirection.current.copy(camera.position).sub(cameraOrigin.current);
-      const distance = cameraDirection.current.length();
-      cameraDirection.current.normalize();
-      cameraRay.current.set(cameraOrigin.current, cameraDirection.current);
-      cameraRay.current.far = distance;
-      const obstruction = cameraRay.current.intersectObjects(cameraWalls.current, false)[0];
-      if (obstruction) camera.position.copy(cameraOrigin.current).addScaledVector(cameraDirection.current, Math.max(0.15, obstruction.distance - 0.2));
+      for (const wall of cameraWalls.current) wall.updateWorldMatrix(true, false);
+      cameraDirection.current.copy(cameraPosition.current).sub(cameraOrigin.current);
+      const span = cameraDirection.current.length();
+      if (span > 1e-4) {
+        cameraDirection.current.multiplyScalar(1 / span);
+        cameraRay.current.set(cameraOrigin.current, cameraDirection.current);
+        cameraRay.current.far = span;
+        const hit = cameraRay.current.intersectObjects(cameraWalls.current, false)[0];
+        if (hit) wallDistance = hit.distance;
+      }
     }
+    const followed = followCamera({
+      mode: cameraMode,
+      origin: [cameraOrigin.current.x, cameraOrigin.current.y, cameraOrigin.current.z],
+      currentPosition: [camera.position.x, camera.position.y, camera.position.z],
+      currentFocus: [cameraFocus.current.x, cameraFocus.current.y, cameraFocus.current.z],
+      desiredPosition: [cameraPosition.current.x, cameraPosition.current.y, cameraPosition.current.z],
+      desiredFocus: [desiredFocus.current.x, desiredFocus.current.y, desiredFocus.current.z],
+      dt,
+      wallDistance,
+      placed: cameraPlaced.current,
+    });
+    cameraPlaced.current = followed.placed;
+    camera.position.set(followed.position[0], followed.position[1], followed.position[2]);
+    cameraFocus.current.set(followed.focus[0], followed.focus[1], followed.focus[2]);
     camera.lookAt(cameraFocus.current);
 
     if (body.current) {

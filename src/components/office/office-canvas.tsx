@@ -1,7 +1,7 @@
 "use client";
 import type { PresenceRoster } from "./office-call";
 
-import type { CameraMode } from "@/domain/camera";
+import { cameraView, type CameraMode } from "@/domain/camera";
 
 import { Canvas } from "@react-three/fiber";
 
@@ -9,9 +9,11 @@ import type { Appearance, Gesture } from "@/domain/character";
 import type { FloorId } from "@/domain/floors";
 import type { PlacedAgent } from "@/domain/placement";
 import type { PlacedRoom } from "@/domain/rooms";
-import type { InteractTarget, Pose } from "@/domain/walker";
+import { LOBBY_SPAWN, type InteractTarget, type Pose } from "@/domain/walker";
 import type {RoutineEngine,RoutineVisual,RoutineCommand,RoutineResult} from "@/domain/agent-routines";
 import { OfficeScene } from "./office-scene";
+
+const openingCamera = cameraView("third", LOBBY_SPAWN, 1.25);
 
 export default function OfficeCanvas({
   routineEngine,routineVisuals,routineCommands,idleMs,host,userPose,newHire,onRoutines,onRoutineResult,onAgent,
@@ -56,10 +58,10 @@ export default function OfficeCanvas({
     <Canvas
       shadows
       dpr={[1, 1.75]}
-      camera={{ fov: 42, position: [7, 9.5, 9.6], near: 0.08, far: 80 }}
+      camera={{ fov: 42, position: openingCamera.position, near: 0.08, far: 80 }}
       gl={{ antialias: true }}
       onCreated={({ camera }) => {
-        camera.lookAt(0, 1.2, -1);
+        camera.lookAt(openingCamera.focus[0], openingCamera.focus[1], openingCamera.focus[2]);
       }}
       style={{ touchAction: "none" }}
     >

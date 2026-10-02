@@ -110,7 +110,7 @@ export function OfficeApp() {
   const [signInError, setSignInError] = useState<string | null>(null);
   const [signingIn, setSigningIn] = useState(false);
   const [colleagueName, setColleagueName] = useState("");
-  const [lanUrls, setLanUrls] = useState<string[]>([]);
+  const [lanPeers, setLanPeers] = useState<string[]>([]);
   const [shared, setShared] = useState<SharedScene | null>(null);
   const [linked, setLinked] = useState(false);
   const [shareBump, setShareBump] = useState(0);
@@ -232,21 +232,31 @@ export function OfficeApp() {
       .finally(() => {
         if (!controller.signal.aborted) setSessionReady(true);
       });
-    void fetch("/api/office/lan", { cache: "no-store", signal: controller.signal })
-      .then(async (response) => {
-        const body = (await response.json()) as { urls?: unknown };
-        if (Array.isArray(body.urls)) {
-          setLanUrls(body.urls.filter((url): url is string => typeof url === "string"));
-        }
-      })
-      .catch(() => undefined);
+    const readPeers = () => {
+      void fetch("/api/office/lan", { cache: "no-store", signal: controller.signal })
+        .then(async (response) => {
+          const body = (await response.json()) as { peers?: unknown };
+          if (!Array.isArray(body.peers)) return;
+          setLanPeers(
+            body.peers.flatMap((peer) =>
+              peer && typeof peer === "object" && "name" in peer && typeof peer.name === "string" ? [peer.name] : [],
+            ),
+          );
+        })
+        .catch(() => undefined);
+    };
+    readPeers();
+    const peerTimer = window.setInterval(readPeers, 2_000);
     void fetch("/api/whoami", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
         const body = (await response.json()) as { name?: unknown };
         if (typeof body.name === "string" && body.name.trim()) setMachineName(body.name.trim());
       })
       .catch(() => undefined);
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      window.clearInterval(peerTimer);
+    };
   }, []);
 
 
@@ -870,7 +880,7 @@ export function OfficeApp() {
           error={signInError}
           pending={signingIn}
           onColleagueName={setColleagueName}
-          lanUrls={lanUrls}
+          lanPeers={lanPeers}
           onHost={() => void signIn("host", "")}
           onInteract={() => void signIn("interact", colleagueName)}
           onObserve={() => void signIn("observer", colleagueName)}
@@ -1007,7 +1017,7 @@ function ReceptionNote({
 function SignInCard({
   machineName,
   colleagueName,
-  lanUrls,
+  lanPeers,
   error,
   pending,
   onColleagueName,
@@ -1017,7 +1027,7 @@ function SignInCard({
 }: {
   machineName: string;
   colleagueName: string;
-  lanUrls: string[];
+  lanPeers: string[];
   error: string | null;
   pending: boolean;
   onColleagueName: (value: string) => void;
@@ -1031,13 +1041,14 @@ function SignInCard({
         <p className="text-[0.65rem] tracking-[0.16em] text-[#8c7b6b] uppercase">Entrar</p>
         <h2 className="font-display mt-1 text-3xl">Quem está neste chão</h2>
         <p className="mt-2 text-sm leading-5 text-[#5c5148]">
-          Nesta máquina: {machineName || "…"}. Quem publica os agentes desta máquina entra nela. Outra pessoa, no mesmo Wi-Fi, escolhe interagir ou só olhar.
+          Nesta máquina: {machineName || "…"}. Abra localhost em cada computador. Escritórios na mesma rede se encontram sozinhos enquanto a página estiver aberta.
         </p>
-        {lanUrls.length > 0 ? (
-          <p className="mt-2 text-sm leading-5 text-[#5c5148]">
-            No outro computador, abra {lanUrls.join(" ou ")}.
-          </p>
-        ) : null}
+        <p className="mt-2 text-sm leading-5 text-[#5c5148]">
+          {lanPeers.length > 0 ? `Na rede agora: ${lanPeers.join(", ")}.` : "Nenhum outro escritório anunciou ainda."}
+        </p>
+        <p className="mt-2 text-sm leading-5 text-[#5c5148]">
+          Outra pessoa neste mesmo computador pode interagir ou só olhar.
+        </p>
         <Button className="mt-4 w-full" disabled={pending || !machineName} onClick={onHost}>
           Entrar nesta máquina
         </Button>

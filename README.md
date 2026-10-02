@@ -10,7 +10,7 @@ cp .env.example .env.local
 npm run dev
 ```
 
-`npm run dev` listens on every interface at port 3847, so another computer on the same Wi-Fi can open it. On this machine, open [http://127.0.0.1:3847](http://127.0.0.1:3847). The entrance shows the address for the other computer, `http://<ip-desta-máquina>:3847`. There is still no deployed service. When the last page closes, the snapshot, the sessions, and the call signal are dropped.
+`npm run dev` listens on port 3847. On this machine, open [http://127.0.0.1:3847](http://127.0.0.1:3847). Another computer on the same Wi-Fi opens its own localhost the same way. While both pages are open, the two processes find each other on the local network. There is no address to hand over, no deployed service, and no cloud room. When the last page on a machine closes, that machine stops announcing; its snapshot, sessions, and call signal are dropped.
 
 WASD walks. The arrow keys turn. In first person the mouse looks around; drag once to capture it, and Esc releases it. In third person, drag to look. Click the floor to walk there. Stand next to a desk, a room board, the elevator, or the HR desk and press E. The camera stays at eye level behind you. It is not an overhead diorama.
 
@@ -83,17 +83,17 @@ Grok is not on the job form. There is no presence API, so no desk is drawn as wo
 
 ## Colleagues
 
-Someone else on the same Wi-Fi opens the address shown at the entrance and chooses a name. **Entrar para interagir** can hire, open a room, create a card, and drop a card through this machine's Linear login, Cursor cloud key, and Claude CLI. **Entrar só para olhar** can walk and see status, and cannot hire, open a room, create or drop a card, publish the office, or start work. The machine running `npm run dev` stays the host: it publishes its own local sessions and the cloud status it can actually read.
+Each person opens localhost on their own computer and enters on that machine. Offices on the same Wi-Fi find each other while those pages are open. A second person on this same computer can still choose **Entrar para interagir** or **Entrar só para olhar**. Interact can hire, open a room, create a card, and drop a card through this machine's Linear login, Cursor cloud key, and Claude CLI. Observer can walk and see status, and cannot hire, open a room, create or drop a card, publish the office, or start work.
 
-Each computer's local Cursor, Claude Code, and Codex agents are sent by that computer. This machine sends them while its page is open. Another computer sends them only while that page is open and `npm run local` is running there. That process reads the same local status this app already reads, and it exits when the page closes. A local agent is drawn on both floors with the person or machine that sent it, and it is shown working only when that report says working. A cloud agent is labeled as cloud, with the account or desk that started it, and it does not get a machine id. Nothing is drawn for a machine that did not send status.
+Each machine reads its own Cursor, Claude Code, and Codex sessions while its page is open. That report is drawn on this machine's floor with no second computer, and it is sent to the other office on the same network. A local agent is labeled with the machine that reported it, and it is shown working only when that report says working. A session no machine reported is not drawn. A cloud agent is labeled as cloud, with the account or desk that started it, and it does not get a machine id.
 
-A card dropped by someone who chose to interact starts Cursor cloud or Claude cloud on the machine that is running the server. It does not start a local session on the other computer. The local seat on that computer stays a status report.
+A card dropped on a machine starts Cursor cloud or Claude cloud there. It does not start a local session on the other computer. The local seat on that computer stays a status report.
 
-The shared channel is memory in the dev server, tied to the open pages. It sends status only: provider, origin, owner, machine id, project id, status, when it was observed, and, for a hired Claude cloud desk, a closed label (`running`, `idle`, `terminated`, `unknown`, or one failure string). Transcripts, tool arguments, file paths, and secrets are not included. When the last page closes, the snapshot, the machine reports, and the sessions are dropped. Nothing stays connected, and another person's page does not start the Cursor observer or the Claude cloud status poll on the server. Voice and video stay a direct call between pages and are not part of agent status.
+The shared channel is memory in each dev server, tied to the open pages. It sends status only: provider, origin, owner, machine id, project id, status, when it was observed, and, for a hired Claude cloud desk, a closed label (`running`, `idle`, `terminated`, `unknown`, or one failure string). Transcripts, tool arguments, file paths, and secrets are not included. When the last page on a machine closes, that machine's snapshot, reports, and sessions are dropped and it stops announcing. Voice and video stay a direct call between pages and are not part of agent status.
 
 ## Voice and video
 
-Two open pages hear and see each other over a direct WebRTC connection. The dev server only forwards the offer, the answer, and ICE candidates, and only to a page that is connected at that moment. It does not open a cloud room, and it does not mix the call into agent status. Microphone and camera can each be turned off. When the last page closes, the signal is dropped and the call ends. Nothing stays running.
+Two open pages hear and see each other over a direct WebRTC connection. On localhost the microphone and camera can be turned on as soon as the page is in the office; both start muted. The capture asks the browser for echo cancellation, noise suppression, and a single channel, and the voice codec stays mono. The dev server only forwards the offer, the answer, and ICE candidates between machines on the local network, and only while those pages are open. It does not open a cloud room, and it does not mix the call into agent status. When the last page closes, the signal is dropped and the call ends. Nothing stays running.
 
 ## Checks
 

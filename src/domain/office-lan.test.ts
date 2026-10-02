@@ -216,6 +216,83 @@ test("a quiet local report stops looking like work and then leaves the floor", (
   assert.equal(gone?.agents.find((item) => item.event.machineId === "machine-host")?.event.status, "idle");
 });
 
+test("a session this machine reports shows on its own floor when the page says the wing is offline", () => {
+  const hub = createOfficeHub({ graceMs: 0 });
+  const leave = hub.join("host", () => undefined);
+  assert.equal(
+    hub.publish("host", { hostName: "Ada", localOffline: true, rooms: [], agents: [] }).ok,
+    true,
+  );
+  assert.equal(hub.snapshot()?.agents.some((agent) => agent.event.origin === "local"), false);
+  assert.equal(
+    hub.noteHostLocal({
+      machineId: "machine-host",
+      owner: "Ada",
+      online: true,
+      agents: [{ ...hostLocal, status: "working" }],
+    }).ok,
+    true,
+  );
+  const cursor = hub.snapshot()?.agents.find((agent) => agent.event.origin === "local");
+  assert.equal(cursor?.event.provider, "cursor");
+  assert.equal(cursor?.event.status, "working");
+  assert.equal(cursor?.machineOnline, true);
+  assert.equal(agentPlaceLabel(cursor!), "Local · Ada");
+  assert.equal(hub.snapshot()?.localOffline, false);
+  assert.equal(
+    hub.publish("host", { hostName: "Ada", localOffline: true, rooms: [], agents: [] }).ok,
+    true,
+  );
+  assert.equal(hub.snapshot()?.agents.find((agent) => agent.event.provider === "cursor")?.event.status, "working");
+  assert.equal(hub.snapshot()?.localOffline, false);
+  assert.equal(hub.snapshot()?.agents.some((agent) => agent.event.provider === "openai"), false);
+  assert.equal(
+    hub.noteHostLocal({
+      machineId: "machine-host",
+      owner: "Ada",
+      online: false,
+      agents: [{ ...hostLocal, status: "working" }],
+    }).ok,
+    true,
+  );
+  assert.equal(hub.snapshot()?.localOffline, true);
+  assert.equal(hub.snapshot()?.agents.find((agent) => agent.event.provider === "cursor")?.event.status, "idle");
+  leave();
+});
+
+test("a session this machine reports stays on the floor and is working only while that report says so", () => {
+  const hub = createOfficeHub({ graceMs: 0 });
+  const leave = hub.join("host", () => undefined);
+  assert.equal(hub.publish("host", scene).ok, true);
+  assert.equal(
+    hub.noteHostLocal({
+      machineId: "machine-host",
+      owner: "Ada",
+      online: true,
+      agents: [{ ...hostLocal, provider: "anthropic", status: "working" }],
+    }).ok,
+    true,
+  );
+  const claude = hub.snapshot()?.agents.find((agent) => agent.event.provider === "anthropic");
+  const cursor = hub.snapshot()?.agents.find((agent) => agent.event.origin === "local" && agent.event.provider === "cursor");
+  assert.equal(claude?.event.status, "working");
+  assert.equal(claude?.event.machineId, "machine-host");
+  assert.equal(agentPlaceLabel(claude!), "Local · Ada");
+  assert.equal(cursor?.event.status, "idle");
+  assert.equal(hub.publish("host", { ...scene, agents: scene.agents.filter((agent) => agent.event.origin !== "local") }).ok, true);
+  assert.equal(
+    hub.snapshot()?.agents.some((agent) => agent.event.provider === "anthropic" && agent.event.status === "working"),
+    true,
+  );
+  assert.equal(
+    hub.noteHostLocal({ machineId: "machine-host", owner: "Ada", online: true, agents: [] }).ok,
+    true,
+  );
+  assert.equal(hub.snapshot()?.agents.some((agent) => agent.event.provider === "anthropic"), false);
+  assert.equal(hub.snapshot()?.agents.some((agent) => agent.event.provider === "openai"), false);
+  leave();
+});
+
 test("lan urls are the other computers on this network", () => {
   assert.deepEqual(
     officeLanUrls(

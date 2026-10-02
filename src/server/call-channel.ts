@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createCallHub, type CallDownlink } from "@/domain/call";
+import { createCallHub, type CallDownlink, type CallPeer, type CallSignal } from "@/domain/call";
 
 const GLOBAL_KEY = "__escritorioDeIaCallV2";
 
@@ -24,7 +24,7 @@ export function joinCall(
   return hub().join(input, listener);
 }
 
-export function postCall(input: { token: string; from: string; to: string; signal: unknown }) {
+export function postCall(input: { token: string; from: string; to: string; signal: unknown; channel?: import("@/domain/call").CallChannel }) {
   return hub().post(input);
 }
 
@@ -33,4 +33,24 @@ export function actCall(input: { token: string; from: string; action: unknown })
 }
 export function setCallAreas(areas: import('@/domain/meeting-areas').MeetingArea[]) {
   hub().setAreas(areas);
+}
+
+export function localCallPeers() {
+  return hub().localPeers();
+}
+
+export function replaceRemotePeers(peers: readonly CallPeer[]) {
+  hub().setRemotePeers(peers);
+}
+
+export function pullRemoteSignals() {
+  return hub().pullRemoteSignals();
+}
+
+export function requeueRemoteSignals(signals: ReturnType<typeof pullRemoteSignals>) {
+  hub().requeueRemoteSignals(signals);
+}
+
+export function deliverOfficeSignal(input: { to: string; from: string; signal: CallSignal }) {
+  return hub().deliverOfficeSignal(input);
 }

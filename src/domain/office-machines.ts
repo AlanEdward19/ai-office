@@ -118,16 +118,21 @@ export function mergeFloor(input: {
   hostPresent: boolean;
   /** Publish replaces the host machine's locals. A hire or a guest report keeps them. */
   hostLocalsFrom: "incoming" | "keep";
+  /** Status this machine itself observed. It wins over a republish that omitted it. */
+  hostReport?: StoredLocalReport | null;
   rooms?: FloorRoom[];
 }): Floor | null {
   const previous = input.previous;
   const incoming = input.incoming;
-  const hostLocals = hostLocalAgents(
-    input.hostLocalsFrom === "incoming" ? incoming : previous,
-    input.hostMachineId,
-    input.hostPresent,
-    input.hostLocalsFrom === "incoming" ? Boolean(incoming?.localOffline) : Boolean(previous?.localOffline),
-  );
+  const hostLocals = hostLocalAgents({
+    source: input.hostLocalsFrom === "incoming" ? incoming : previous,
+    hostMachineId: input.hostMachineId,
+    hostPresent: input.hostPresent,
+    publishedOffline:
+      input.hostLocalsFrom === "incoming" ? Boolean(incoming?.localOffline) : Boolean(previous?.localOffline),
+    hostReport: input.hostReport ?? null,
+    now: input.now,
+  });
   const guestAgents = placeGuestAgents(input.reports, input.now, input.hostMachineId, hostLocals.length);
   if (!previous && !incoming && guestAgents.length === 0 && hostLocals.length === 0) return null;
 
@@ -141,11 +146,37 @@ export function mergeFloor(input: {
   return {
     hostName,
     ...(hostTimeZone ? { hostTimeZone } : {}),
-    localOffline: input.hostPresent ? Boolean(incoming?.localOffline ?? previous?.localOffline) : true,
+    localOffline: hostWingOffline({
+      hostPresent: input.hostPresent,
+      hostReport: input.hostReport ?? null,
+      hostMachineId: input.hostMachineId,
+      now: input.now,
+      incomingOffline: incoming?.localOffline,
+      previousOffline: previous?.localOffline,
+    }),
     rooms,
     agents: [...cloud, ...locals],
     ...(routines ? { routines } : {}),
   };
+}
+
+/** The wing follows this machine's own report. A page that lost the presence stream cannot mark it offline. */
+function hostWingOffline(input: {
+  hostPresent: boolean;
+  hostReport: StoredLocalReport | null;
+  hostMachineId: string | null;
+  now: number;
+  incomingOffline: boolean | undefined;
+  previousOffline: boolean | undefined;
+}): boolean {
+  if (!input.hostPresent) return true;
+  const report = input.hostReport;
+  if (report && (!input.hostMachineId || report.report.machineId === input.hostMachineId)) {
+    const age = input.now - report.seenAt;
+    if (age > LOCAL_REPORT_STALE_MS) return true;
+    return !report.report.online;
+  }
+  return Boolean(input.incomingOffline ?? input.previousOffline);
 }
 
 export function nextCloudSlot(agents: readonly PlacedAgent[]): { x: number; z: number } | null {
@@ -154,14 +185,20 @@ export function nextCloudSlot(agents: readonly PlacedAgent[]): { x: number; z: n
   return deskSlot(count);
 }
 
-function hostLocalAgents(
-  source: Floor | null,
-  hostMachineId: string | null,
-  hostPresent: boolean,
-  publishedOffline: boolean,
-): PlacedAgent[] {
-  const online = hostPresent && !publishedOffline;
-  return localsForHost(source?.agents ?? [], hostMachineId)
+function hostLocalAgents(input: {
+  source: Floor | null;
+  hostMachineId: string | null;
+  hostPresent: boolean;
+  publishedOffline: boolean;
+  hostReport: StoredLocalReport | null;
+  now: number;
+}): PlacedAgent[] {
+  const report = input.hostReport;
+  if (report && (!input.hostMachineId || report.report.machineId === input.hostMachineId)) {
+    return localsFromHostReport(input.source?.agents ?? [], report, input.now);
+  }
+  const online = input.hostPresent && !input.publishedOffline;
+  return localsForHost(input.source?.agents ?? [], input.hostMachineId)
     .slice(0, LOCAL_CAPACITY)
     .map((agent) => ({
       ...agent,
@@ -169,6 +206,53 @@ function hostLocalAgents(
       form: agent.form ? { ...agent.form } : null,
       event: presentLocalEvent({ ...agent.event }, online),
     }));
+}
+
+/**
+ * A session this machine reported is drawn, working only while that report says so.
+ * A hired seat stays, but it is not shown working unless the report includes it.
+ */
+function localsFromHostReport(
+  sceneAgents: readonly PlacedAgent[],
+  stored: StoredLocalReport,
+  now: number,
+): PlacedAgent[] {
+  const age = now - stored.seenAt;
+  const dropped = age > LOCAL_REPORT_DROP_MS;
+  const online = stored.report.online && age <= LOCAL_REPORT_STALE_MS;
+  const sceneLocals = sceneAgents.filter(
+    (agent) => agent.event.origin === "local" && agent.event.machineId === stored.report.machineId,
+  );
+  const byProvider = new Map(stored.report.agents.map((event) => [event.provider, event]));
+  const used = new Set<string>();
+  const placed: PlacedAgent[] = [];
+  let slot = 0;
+  for (const agent of sceneLocals) {
+    if (!agent.form || slot >= LOCAL_CAPACITY) continue;
+    const event = dropped ? undefined : byProvider.get(agent.event.provider);
+    if (event) used.add(event.provider);
+    const next = event ?? { ...agent.event, status: "idle" as const };
+    placed.push({
+      ...agent,
+      machineOnline: online && !dropped,
+      form: { ...agent.form },
+      event: presentLocalEvent(next, online && !dropped),
+    });
+    slot += 1;
+  }
+  if (dropped) return placed;
+  for (const event of stored.report.agents) {
+    if (used.has(event.provider) || slot >= LOCAL_CAPACITY) continue;
+    placed.push({
+      id: `local:${event.machineId}:${event.provider}`,
+      ...localWingSlot(slot),
+      form: null,
+      machineOnline: online,
+      event: presentLocalEvent(event, online),
+    });
+    slot += 1;
+  }
+  return placed;
 }
 
 function localsForHost(agents: readonly PlacedAgent[], hostMachineId: string | null): PlacedAgent[] {

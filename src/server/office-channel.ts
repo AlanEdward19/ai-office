@@ -5,6 +5,8 @@ import { networkInterfaces, userInfo } from "node:os";
 
 import { parseJobForm } from "@/domain/job-form";
 import { officeLanUrls } from "@/domain/office-machines";
+import { releaseLanOffice, retainLanOffice } from "@/server/lan-bridge";
+import type { PlacedAgent } from "@/domain/placement";
 import { bindRoom, roomsFromBindings } from "@/domain/opened-rooms";
 import { layoutRooms } from "@/domain/rooms";
 import {
@@ -122,7 +124,37 @@ export async function signInOffice(input: {
 }
 
 export function subscribeOffice(role: OfficeRole, listener: (scene: SharedScene | null) => void) {
-  return state().hub.join(role, listener);
+  const leave = state().hub.join(role, listener);
+  retainLanOffice();
+  return () => {
+    leave();
+    releaseLanOffice();
+  };
+}
+
+export function noteObservedLocals(body: unknown) {
+  return state().hub.noteHostLocal(body);
+}
+
+export function acceptPeerOffice(input: { report: unknown; rooms: SharedScene["rooms"]; cloud: PlacedAgent[] }) {
+  return state().hub.acceptPeerScene(input);
+}
+
+export function peerOfficeRecord() {
+  const hub = state().hub;
+  const scene = hub.snapshot();
+  const report = hub.hostLocalReport();
+  return {
+    owner: report?.report.owner ?? scene?.hostName ?? "",
+    online: report?.report.online ?? false,
+    agents: report?.report.agents ?? [],
+    rooms: scene?.rooms ?? [],
+    cloud: (scene?.agents ?? []).filter((agent) => agent.event.origin === "cloud" && agent.event.machineId === null),
+  };
+}
+
+export function releaseIdleOffice() {
+  state().hub.releaseIdle();
 }
 
 export function publishOffice(role: OfficeRole, scene: unknown) {

@@ -270,6 +270,17 @@ function deactivate(state: BridgeState) {
   state.accept = { cursor: false, anthropic: false };
 }
 
+/** The id this machine already uses for local status. It does not install hooks. */
+export function officeMachineIdentity(): { machineId: string; owner: string } {
+  fs.mkdirSync(HOME, { recursive: true });
+  const machineId = readOrCreateMachineId();
+  const owner = os.userInfo().username.trim() || "esta máquina";
+  const state = bridgeState();
+  if (!state.machineId) state.machineId = machineId;
+  state.owner = owner;
+  return { machineId, owner };
+}
+
 export function retainLocalBridge(): LocalBridge {
   const state = bridgeState();
   ensureWatchdog(state);
