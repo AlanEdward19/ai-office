@@ -40,6 +40,12 @@ export const deskStore = {
   desksFrom(raw: string): DeskRecord[] {
     return loadDesks(raw || null);
   },
+  adopt(desk: DeskRecord) {
+    readStorage();
+    const current = loadDesks(snapshot || null);
+    if (current.some((item) => item.id === desk.id)) return;
+    publish(serializeDesks([...current, desk]));
+  },
   add(form: JobForm): DeskRecord {
     readStorage();
     if (loadDesks(snapshot || null).length >= DESK_CAPACITY) throw new Error("Capacidade atingida: nove postos. Os corredores devem permanecer livres.");

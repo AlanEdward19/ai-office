@@ -44,15 +44,16 @@ const scene: SharedScene = {
   ],
 };
 
-test("only the host can publish, hire, drop, or start an agent", () => {
+test("the host publishes, an interact person can hire and start work, and an observer cannot", () => {
   const actions: OfficeAction[] = ["publish", "hire", "drop", "dispatch", "create_card", "open_room"];
   for (const action of actions) {
     assert.equal(canPerform("host", action), true);
-    assert.equal(canPerform("colleague", action), false);
+    assert.equal(canPerform("observer", action), false);
+    assert.equal(canPerform("interact", action), action !== "publish");
   }
 });
 
-test("a colleague has to be someone other than the person on this machine", () => {
+test("someone else enters as interact or observer, never as the person on this machine", () => {
   assert.deepEqual(
     decideSignIn({
       intent: "host",
@@ -75,7 +76,7 @@ test("a colleague has to be someone other than the person on this machine", () =
   );
   assert.deepEqual(
     decideSignIn({
-      intent: "colleague",
+      intent: "observer",
       name: "ada",
       machineName: "Ada",
       hostName: "Ada",
@@ -85,17 +86,17 @@ test("a colleague has to be someone other than the person on this machine", () =
   );
   assert.deepEqual(
     decideSignIn({
-      intent: "colleague",
+      intent: "interact",
       name: "Bianca",
       machineName: "Ada",
       hostName: "Ada",
       hostTaken: true,
     }),
-    { ok: true, role: "colleague", name: "Bianca" },
+    { ok: true, role: "interact", name: "Bianca" },
   );
   assert.deepEqual(
     decideSignIn({
-      intent: "colleague",
+      intent: "observer",
       name: "   ",
       machineName: "Ada",
       hostName: null,
@@ -159,8 +160,8 @@ test("the channel lives only while someone is looking", () => {
   const hub = createOfficeHub({ graceMs: 0, onEmpty: () => { emptied += 1; } });
   assert.deepEqual(hub.publish("host", scene), { ok: false, reason: "closed" });
   const seen: unknown[] = [];
-  const leaveColleague = hub.join("colleague", (next) => seen.push(next));
-  assert.deepEqual(hub.publish("colleague", scene), { ok: false, reason: "read_only" });
+  const leaveColleague = hub.join("observer", (next) => seen.push(next));
+  assert.deepEqual(hub.publish("observer", scene), { ok: false, reason: "read_only" });
 
   let hostView: unknown = "missing";
   const leaveHost = hub.join("host", (next) => {

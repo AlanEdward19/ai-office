@@ -1,14 +1,19 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { userInfo } from "node:os";
+import { networkInterfaces, userInfo } from "node:os";
 
+import { parseJobForm } from "@/domain/job-form";
+import { officeLanUrls } from "@/domain/office-machines";
+import { bindRoom, roomsFromBindings } from "@/domain/opened-rooms";
+import { layoutRooms } from "@/domain/rooms";
 import {
   createOfficeHub,
   decideSignIn,
   type OfficeRole,
   type SharedScene,
 } from "@/domain/office-share";
+import { detectLocalLogins } from "@/server/local-logins";
 import { listLinearProjects } from "@/server/linear-client";
 
 import { meetingAreas } from "@/domain/meeting-areas";
@@ -125,6 +130,38 @@ export function publishOffice(role: OfficeRole, scene: unknown) {
   const snapshot = state().hub.snapshot();
   if (result.ok && snapshot) setCallAreas(meetingAreas(snapshot.rooms));
   return result;
+}
+
+export function reportLocalOffice(body: unknown) {
+  return state().hub.reportLocal(body);
+}
+
+export async function hireSharedDesk(role: OfficeRole, form: unknown) {
+  const logged = await detectLocalLogins();
+  const record = form && typeof form === "object" ? (form as { role?: unknown; provider?: unknown }) : {};
+  const parsed = parseJobForm(record, logged.providers);
+  if (!parsed.ok) return { ok: false as const, reason: parsed.error };
+  return state().hub.hire(role, {
+    id: randomUUID(),
+    form: parsed.form,
+    owner: await machineDisplayName(),
+    observedAt: new Date().toISOString(),
+  });
+}
+
+export async function openSharedRoom(role: OfficeRole, projectId: string) {
+  const apiKey = process.env.LINEAR_API_KEY?.trim();
+  if (!apiKey) return { ok: false as const, reason: "missing_key" as const };
+  const listed = await listLinearProjects(apiKey);
+  const opened = state().hub.snapshot()?.rooms.map((room) => room.id) ?? [];
+  const bound = bindRoom(opened, listed.projects, projectId);
+  if (!bound.ok) return { ok: false as const, reason: bound.error };
+  return state().hub.openRoom(role, layoutRooms(roomsFromBindings(listed.projects, bound.projectIds)));
+}
+
+export function officeLanAddresses(port = 3847): string[] {
+  const entries = Object.values(networkInterfaces()).flatMap((list) => list ?? []);
+  return officeLanUrls(entries, port);
 }
 
 export function officeViewerCount() {

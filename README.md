@@ -10,7 +10,7 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Open [http://127.0.0.1:3847](http://127.0.0.1:3847).
+`npm run dev` listens on every interface at port 3847, so another computer on the same Wi-Fi can open it. On this machine, open [http://127.0.0.1:3847](http://127.0.0.1:3847). The entrance shows the address for the other computer, `http://<ip-desta-máquina>:3847`. There is still no deployed service. When the last page closes, the snapshot, the sessions, and the call signal are dropped.
 
 WASD walks. The arrow keys turn. Drag the mouse to look, or click the floor to walk there. Stand next to a desk, a room board, the elevator, or the HR desk and press E. The camera stays at eye level behind you. It is not an overhead diorama.
 
@@ -83,9 +83,13 @@ Grok is not on the job form. There is no presence API, so no desk is drawn as wo
 
 ## Colleagues
 
-Someone else can open the same page and choose "Entrar só para olhar" with a different name. They see the rooms and agent status this machine is publishing, and they can walk the floor. They cannot hire, open a room, drop a card, create a card, or publish an event.
+Someone else on the same Wi-Fi opens the address shown at the entrance and chooses a name. **Entrar para interagir** can hire, open a room, create a card, and drop a card through this machine's Linear login, Cursor cloud key, and Claude CLI. **Entrar só para olhar** can walk and see status, and cannot hire, open a room, create or drop a card, publish the office, or start work. The machine running `npm run dev` stays the host: it publishes its own local sessions and the cloud status it can actually read.
 
-The shared channel is memory in the dev server, tied to the open pages. It sends status only: provider, origin, owner, machine id, project id, status, when it was observed, and, for a hired Claude cloud desk, a closed label (`running`, `idle`, `terminated`, `unknown`, or one failure string). Transcripts, tool arguments, file paths, and secrets are not included. When the last page closes, the snapshot and the sessions are dropped. Nothing stays connected, and a colleague page does not start the Cursor observer, the Claude cloud status poll, or the local hook bridge.
+Each computer's local Cursor, Claude Code, and Codex agents are sent by that computer. This machine sends them while its page is open. Another computer sends them only while that page is open and `npm run local` is running there. That process reads the same local status this app already reads, and it exits when the page closes. A local agent is drawn on both floors with the person or machine that sent it, and it is shown working only when that report says working. A cloud agent is labeled as cloud, with the account or desk that started it, and it does not get a machine id. Nothing is drawn for a machine that did not send status.
+
+A card dropped by someone who chose to interact starts Cursor cloud or Claude cloud on the machine that is running the server. It does not start a local session on the other computer. The local seat on that computer stays a status report.
+
+The shared channel is memory in the dev server, tied to the open pages. It sends status only: provider, origin, owner, machine id, project id, status, when it was observed, and, for a hired Claude cloud desk, a closed label (`running`, `idle`, `terminated`, `unknown`, or one failure string). Transcripts, tool arguments, file paths, and secrets are not included. When the last page closes, the snapshot, the machine reports, and the sessions are dropped. Nothing stays connected, and another person's page does not start the Cursor observer or the Claude cloud status poll on the server. Voice and video stay a direct call between pages and are not part of agent status.
 
 ## Voice and video
 

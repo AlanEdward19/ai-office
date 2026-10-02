@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --hostname 127.0.0.1 --port 3847",
+    "dev": "next dev --hostname 0.0.0.0 --port 3847",
     "build": "next build",
-    "start": "next start --hostname 127.0.0.1 --port 3847",
+    "start": "next start --hostname 0.0.0.0 --port 3847",
+    "local": "node --conditions=react-server --import tsx scripts/local-desk.ts",
     "lint": "eslint",
     "test": "tsx --test src/domain/*.test.ts"
   },
