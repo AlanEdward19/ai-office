@@ -85,7 +85,7 @@ Grok is not on the job form. There is no presence API, so no desk is drawn as wo
 
 Each person opens localhost on their own computer and enters on that machine. Offices on the same Wi-Fi find each other while those pages are open. A second person on this same computer can still choose **Entrar para interagir** or **Entrar só para olhar**. Interact can hire, open a room, create a card, and drop a card through this machine's Linear login, Cursor cloud key, and Claude CLI. Observer can walk and see status, and cannot hire, open a room, create or drop a card, publish the office, or start work.
 
-Each machine reads its own Cursor, Claude Code, and Codex sessions while its page is open and sends that status to the other office. A local agent is drawn on both floors with the machine that reported it, and it is shown working only when that report says working. A session no machine reported is not drawn. A cloud agent is labeled as cloud, with the account or desk that started it, and it does not get a machine id.
+Each machine reads its own Cursor, Claude Code, and Codex sessions while its page is open. That report is drawn on this machine's floor with no second computer, and it is sent to the other office on the same network. A local agent is labeled with the machine that reported it, and it is shown working only when that report says working. A session no machine reported is not drawn. A cloud agent is labeled as cloud, with the account or desk that started it, and it does not get a machine id.
 
 A card dropped on a machine starts Cursor cloud or Claude cloud there. It does not start a local session on the other computer. The local seat on that computer stays a status report.
 

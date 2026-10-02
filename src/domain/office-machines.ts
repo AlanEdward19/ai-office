@@ -146,11 +146,37 @@ export function mergeFloor(input: {
   return {
     hostName,
     ...(hostTimeZone ? { hostTimeZone } : {}),
-    localOffline: input.hostPresent ? Boolean(incoming?.localOffline ?? previous?.localOffline) : true,
+    localOffline: hostWingOffline({
+      hostPresent: input.hostPresent,
+      hostReport: input.hostReport ?? null,
+      hostMachineId: input.hostMachineId,
+      now: input.now,
+      incomingOffline: incoming?.localOffline,
+      previousOffline: previous?.localOffline,
+    }),
     rooms,
     agents: [...cloud, ...locals],
     ...(routines ? { routines } : {}),
   };
+}
+
+/** The wing follows this machine's own report. A page that lost the presence stream cannot mark it offline. */
+function hostWingOffline(input: {
+  hostPresent: boolean;
+  hostReport: StoredLocalReport | null;
+  hostMachineId: string | null;
+  now: number;
+  incomingOffline: boolean | undefined;
+  previousOffline: boolean | undefined;
+}): boolean {
+  if (!input.hostPresent) return true;
+  const report = input.hostReport;
+  if (report && (!input.hostMachineId || report.report.machineId === input.hostMachineId)) {
+    const age = input.now - report.seenAt;
+    if (age > LOCAL_REPORT_STALE_MS) return true;
+    return !report.report.online;
+  }
+  return Boolean(input.incomingOffline ?? input.previousOffline);
 }
 
 export function nextCloudSlot(agents: readonly PlacedAgent[]): { x: number; z: number } | null {
